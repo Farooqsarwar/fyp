@@ -1,131 +1,181 @@
+import 'dart:ui';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-
+import 'package:fyp/view/Login_screen.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'Live_Biding.dart';
-import 'Login_screen.dart';
 import 'bidwinscreen.dart';
+import 'models/fetching user data.dart';
 
-class CustomDrawer extends StatelessWidget {
-   CustomDrawer({super.key});
+class CustomDrawer extends StatefulWidget {
+  const CustomDrawer({Key? key}) : super(key: key);
 
-  final String imgurl = "https://freesvg.org/img/abstract-user-flat-4.png";
+  @override
+  _CustomDrawerState createState() => _CustomDrawerState();
+}
+
+class _CustomDrawerState extends State<CustomDrawer> {
+  final SupabaseClient supabase = Supabase.instance.client;
+  final UserService _userService = UserService();
+
+  User? _user;
+  String _userName = "Guest User";
+  String? _userPhotoPath;
+  bool _isLoading = false;
+  bool _hasFetchedData = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  /// Load user data from Supabase
+  Future<void> _loadUserData() async {
+    if (_isLoading || _hasFetchedData) return;
+    setState(() => _isLoading = true);
+
+    _user = supabase.auth.currentUser;
+    print("Current User: ${_user?.id}"); // Debugging log
+
+    if (_user != null) {
+      try {
+        String name = await _userService.fetchUserName();
+        print("Fetched User Name: $name"); // Debugging log
+
+        String? photoPath = await _userService.fetchProfilePicture();
+
+        if (mounted) {
+          setState(() {
+            _userName = name;
+            _userPhotoPath = photoPath;
+            _hasFetchedData = true;
+          });
+        }
+      } catch (e) {
+        print("Error loading user data: $e");
+      }
+    }
+
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+  /// Upload and save user profile picture
+  Future<void> _updateProfilePicture() async {
+    String? newPhotoPath = await _userService.uploadProfilePicture(context);
+    if (newPhotoPath != null && mounted) {
+      setState(() {
+        _userPhotoPath = newPhotoPath;
+      });
+    }
+  }
+
+  Future<void> _signOut() async {
+    await supabase.auth.signOut();
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => LoginScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Drawer(
-      child: ListView(
-        padding: EdgeInsets.zero,
+      child: Column(
         children: [
-          SizedBox(
-            height: 270,
-            child: DrawerHeader(
-              decoration: const BoxDecoration(
-                color: Color.fromARGB(255, 27, 27, 27),
-              ),
-              child: Stack(
-                children: [
-                  // Positioned image
-                  Align(
-                    alignment: Alignment.topCenter, // Center the image
-                    child: ClipOval(
-                      child: Image.network(
-                        imgurl,
-                        fit: BoxFit.cover,
-                        height: 150,
-                      ),
-                    ),
-                  ),
-                  // Positioned IconButton
-                  Positioned(
-                    top: -10,
-                    right: 75,
-                    child: IconButton(
-                      onPressed: () {},
-                      icon: const Icon(
-                        Icons.add,
-                        color: Colors.yellow,
-                        size: 30,
-                      ),
-                    ),
-                  ),
-                  const Positioned(
-                      top: 155,
-                      left: 90,
-                      child: Text(
-                        "user name",
-                        style: TextStyle(color: Colors.white,
-                          fontSize: 20
-                        ),
-                      ))
-                ],
-              ),
-            ),
-          ),
-          ListTile(
-            leading: const Icon(Icons.list_alt_rounded),
-            title: const Text('Placed Bids'),
-            onTap: () {
-              Navigator.pop(context); // Close the drawer
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.outbound_sharp),
-            title: const Text('Ongoing Bids'),
-            onTap: () {
-              Navigator.push(context, MaterialPageRoute(builder: (context)=>const LiveBidscreen()));
-            },
-          ),
-          ListTile(
-            leading:const FaIcon(
-              FontAwesomeIcons.trophy,  // Trophy icon from Font Awesome
-            ),
-            title: const Text('Win Bids'),
-            onTap: () {
-              Navigator.push(context, MaterialPageRoute(builder: (context)=>const BidWinScreen()));
-            },
-          ),
-          ListTile(
-            leading:const FaIcon(
-              FontAwesomeIcons.circleInfo,  // Trophy icon from Font Awesome
-            ),
-            title: const Text('About Us'),
-            onTap: () {
-            },
-          ),
-          ListTile(
-            leading:const FaIcon(
-              Icons.exit_to_app,  // Trophy icon from Font Awesome
-            ),
-            title: const Text('Logout'),
-            onTap: () {
-              Navigator.pushReplacement(context, MaterialPageRoute(builder: (context)=>const LoginScreen()));
+          _buildDrawerHeader(),
+          _buildDrawerOptions(),
+          _buildFooter(),
+        ],
+      ),
+    );
+  }
 
-            },
-          ),
-          const SizedBox(height: 150,),
-          Container(
-            color: Colors.black,
-            child: Row(
+  Widget _buildDrawerHeader() {
+    return SizedBox(
+      height: 270,
+      width: double.infinity,
+      child: DrawerHeader(
+        decoration: const BoxDecoration(color: Color(0xFF1B1B1B)),
+        child: _isLoading
+            ? const Center(child: CircularProgressIndicator(color: Colors.white))
+            : Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Stack(
+              alignment: Alignment.center,
               children: [
-                const SizedBox(width: 10,),
                 ClipOval(
-                  child: Center(
-                    child: Image.asset(
-                      "assets/logo.jpg",
-                      width: 50,
-                      height: 50,
-                    ),
+                  child: _userService.getProfileImageWidget(
+                    filePath: _userPhotoPath,
+                    size: 150,
                   ),
                 ),
-                const SizedBox(width: 10,),
-                const Text("All Rights reserved",
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.bold
-                ),)
+                Positioned(
+                  top: -10,
+                  right: 0,
+                  child: IconButton(
+                    onPressed: _updateProfilePicture,
+                    icon: const Icon(Icons.add, color: Colors.yellow, size: 30),
+                  ),
+                ),
               ],
             ),
-          )
+            const SizedBox(height: 10),
+            Text(
+              _userName,
+              style: const TextStyle(color: Colors.white, fontSize: 20),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDrawerOptions() {
+    return Expanded(
+      child: ListView(
+        children: [
+          _buildDrawerItem(Icons.list_alt_rounded, "Placed Bids", () => Navigator.pop(context)),
+          _buildDrawerItem(Icons.outbound_sharp, "Ongoing Bids", () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const LiveBidscreen()),
+          )),
+          _buildDrawerItem(FontAwesomeIcons.trophy, "Win Bids", () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const BidWinScreen()),
+          )),
+          _buildDrawerItem(Icons.info_outline, "About Us", () {}),
+          _buildDrawerItem(Icons.exit_to_app, "Logout", _signOut),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDrawerItem(IconData icon, String title, VoidCallback onTap) {
+    return ListTile(
+      leading: icon is IconData ? Icon(icon) : FaIcon(icon),
+      title: Text(title),
+      onTap: onTap,
+    );
+  }
+
+  Widget _buildFooter() {
+    return Container(
+      color: Colors.black,
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          ClipOval(
+            child: Image.asset("assets/logo.jpg", width: 50, height: 50),
+          ),
+          const SizedBox(width: 10),
+          const Text(
+            "All Rights Reserved",
+            style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+          ),
         ],
       ),
     );

@@ -1,9 +1,8 @@
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
-import 'package:fyp/view/regestration_screen.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'Forgetpassword.dart';
 import 'Homescreen.dart';
+import 'regestration_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -14,11 +13,12 @@ class LoginScreen extends StatefulWidget {
 
 bool isObscured = true;
 final _formKey = GlobalKey<FormState>();
-DatabaseReference userref = FirebaseDatabase.instance.ref().child("users");
 final TextEditingController emailController = TextEditingController();
 final TextEditingController passwordController = TextEditingController();
 
 class _LoginScreenState extends State<LoginScreen> {
+  final SupabaseClient supabase = Supabase.instance.client;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -29,7 +29,6 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Form(
             key: _formKey,
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.start,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const SizedBox(height: 80),
@@ -67,8 +66,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     decoration: InputDecoration(
                       labelText: 'Your email',
                       labelStyle: const TextStyle(color: Colors.white),
-                      suffixIcon: const Icon(Icons.email),
-                      suffixIconColor: Colors.white,
+                      suffixIcon: const Icon(Icons.email, color: Colors.white),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(15),
                       ),
@@ -100,6 +98,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       suffixIcon: GestureDetector(
                         child: Icon(
                           isObscured ? Icons.visibility : Icons.visibility_off,
+                          color: Colors.white,
                         ),
                         onTap: () {
                           setState(() {
@@ -107,7 +106,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           });
                         },
                       ),
-                      suffixIconColor: Colors.white,
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(15),
                       ),
@@ -134,11 +132,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     },
                     child: const Text(
                       "Forget password?",
-                      style: TextStyle(
-                        color: Colors.blue,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                      ),
+                      style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 12),
                     ),
                   ),
                 ),
@@ -159,10 +153,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: const Center(
                       child: Text(
                         "Login now",
-                        style: TextStyle(
-                          color: Colors.black,
-                          fontWeight: FontWeight.bold,
-                        ),
+                        style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
                       ),
                     ),
                   ),
@@ -172,10 +163,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   padding: EdgeInsets.only(top: 8.0, left: 100),
                   child: Text(
                     "Haven't signed up yet?",
-                    style: TextStyle(
-                      color: Colors.white24,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(color: Colors.white24, fontWeight: FontWeight.bold),
                   ),
                 ),
                 Padding(
@@ -185,18 +173,11 @@ class _LoginScreenState extends State<LoginScreen> {
                       emailController.clear();
                       passwordController.clear();
                       _formKey.currentState?.reset();
-
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (context) => RegistrationScreen()),
-                      );
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => RegistrationScreen()));
                     },
                     child: const Text(
                       "Create account?",
-                      style: TextStyle(
-                        color: Colors.yellowAccent,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: TextStyle(color: Colors.yellowAccent, fontWeight: FontWeight.bold),
                     ),
                   ),
                 ),
@@ -207,8 +188,6 @@ class _LoginScreenState extends State<LoginScreen> {
       ),
     );
   }
-
-  final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
 
   void loginUser(BuildContext context) async {
     if (_formKey.currentState!.validate()) {
@@ -223,8 +202,7 @@ class _LoginScreenState extends State<LoginScreen> {
             );
           },
         );
-
-        final UserCredential userCredential = await _firebaseAuth.signInWithEmailAndPassword(
+        final AuthResponse res = await supabase.auth.signInWithPassword(
           email: emailController.text.trim(),
           password: passwordController.text.trim(),
         );
@@ -234,61 +212,37 @@ class _LoginScreenState extends State<LoginScreen> {
           Navigator.pop(context);
         }
 
-        if (userCredential.user != null) {
-          // Clear the form
+        if (res.user != null) {
           emailController.clear();
           passwordController.clear();
           _formKey.currentState?.reset();
 
-          if (context.mounted) {
-            // Show success message using ScaffoldMessenger
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Successfully logged in'),
-                backgroundColor: Colors.green,
-              ),
-            );
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Successfully logged in'),
+              backgroundColor: Colors.green,
+            ),
+          );
 
-            // Navigate to home screen using pushReplacement
-            Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(builder: (c) => const Homescreen())
-            );
-          }
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (c) => const Homescreen()),
+          );
         }
-      } on FirebaseAuthException catch (e) {
-        // Close loading indicator if showing
+      } catch (e) {
         if (context.mounted && Navigator.canPop(context)) {
           Navigator.pop(context);
         }
         emailController.clear();
         passwordController.clear();
-        if (context.mounted) {
-          String message = '';
-          switch (e.code) {
-            case 'user-not-found':
-              message = 'No user found with this email';
-              break;
-            case 'wrong-password':
-              message = 'Wrong password provided';
-              break;
-            case 'invalid-email':
-              message = 'Invalid email address';
-              break;
-            case 'user-disabled':
-              message = 'This user account has been disabled';
-              break;
-            default:
-              message = 'An error occurred: ${e.message}';
-          }
 
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(message),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Login failed: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+        print("Login failed: $e");
       }
     }
   }
