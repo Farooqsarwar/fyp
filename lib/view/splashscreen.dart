@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:fyp/view/Homescreen.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'Login_screen.dart';
 
@@ -19,18 +19,20 @@ class _SplashScreenState extends State<SplashScreen> {
     _checkLoginStatus();
   }
 
-  void _checkLoginStatus() async {
-    User? user = FirebaseAuth.instance.currentUser;
+  Future<void> _checkLoginStatus() async {
+    final supabase = Supabase.instance.client;
+    final user = supabase.auth.currentUser;
+
     await Future.delayed(const Duration(seconds: 3));
 
     if (user != null) {
-      // If the user is logged in, navigate to Home Screen
+      // User is logged in, navigate to Home Screen
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const Homescreen()),
       );
     } else {
-      // If not logged in, navigate to Login Screen
+      // User is not logged in, navigate to Login Screen
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const LoginScreen()),
@@ -49,7 +51,7 @@ class _SplashScreenState extends State<SplashScreen> {
           children: [
             const SizedBox(height: 200),
             Image.asset(
-              "assets/logo.jpg", // New image with transparent background
+              "assets/logo.jpg",
               fit: BoxFit.cover,
               width: 268,
               height: 252,

@@ -1,27 +1,41 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-
 import 'Predict_price_screen.dart';
 
 class Car_Bid_details extends StatefulWidget {
   final String imageUrl;
   final String title;
   final bool art;
+  final Map<String, dynamic>? carData; // Add this parameter
 
   const Car_Bid_details({
     super.key,
     required this.imageUrl,
     required this.title,
     required this.art,
+    this.carData, // Make it optional
   });
+
   @override
   State<Car_Bid_details> createState() => _Car_Bid_detialsState();
 }
+
 class _Car_Bid_detialsState extends State<Car_Bid_details> {
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
+
+    // Extract car details from carData
+    final price = widget.carData?['price'] ?? 'N/A';
+    final description = widget.carData?['description'] ?? 'B2B Genuine, 1st owner, Bio Available, Extra Accessories installed. Just like a Zero Meter car.';
+    final distance = widget.carData?['distance'] ?? 'N/A';
+    final transmission = widget.carData?['transmission'] ?? 'Automatic';
+    final fuel = widget.carData?['fuel'] ?? 'Petrol';
+    final registrationCity = widget.carData?['registration_city'] ?? 'N/A';
+    final horsePower = widget.carData?['horse_power'] ?? 'N/A';
+    final startTime = widget.carData?['start_time'] ?? 'N/A';
+    final endTime = widget.carData?['end_time'] ?? 'N/A';
 
     return SafeArea(
       child: Scaffold(
@@ -41,27 +55,26 @@ class _Car_Bid_detialsState extends State<Car_Bid_details> {
                       widget.imageUrl,
                       fit: BoxFit.cover,
                       width: screenWidth,
-                      height: screenHeight * 0.5, // 50% of the screen height
+                      height: screenHeight * 0.5,
                     ),
                   ),
                   Positioned(
                     top: screenHeight * 0.4,
                     child: Container(
                       width: screenWidth,
-                      height: screenHeight * 0.1, // 10% of the screen height
+                      height: screenHeight * 0.1,
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(15),
-                        color: const Color.fromRGBO(
-                            27, 27, 27, 0.6980392156862745),
+                        color: const Color.fromRGBO(27, 27, 27, 0.6980392156862745),
                       ),
                     ),
                   ),
                   Positioned(
                     top: screenHeight * 0.4,
                     left: 10,
-                    child: const Text(
-                      "Bid Initial Price",
-                      style: TextStyle(
+                    child: Text(
+                      "Bid Initial Price: $price pkr",
+                      style: const TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
                         color: Colors.white,
@@ -72,7 +85,7 @@ class _Car_Bid_detialsState extends State<Car_Bid_details> {
                     top: screenHeight * 0.465,
                     right: 15,
                     child: const Text(
-                      "Total Bids",
+                      "Total Bids: 12",
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
@@ -82,8 +95,8 @@ class _Car_Bid_detialsState extends State<Car_Bid_details> {
                   ),
                   Container(
                     decoration: const BoxDecoration(
-                      borderRadius: BorderRadius.all(Radius.circular(120)),
-                      color: Color.fromRGBO(0, 0, 0, 0.76)
+                        borderRadius: BorderRadius.all(Radius.circular(120)),
+                        color: Color.fromRGBO(0, 0, 0, 0.76)
                     ),
                     child: IconButton(
                       onPressed: () {
@@ -100,8 +113,8 @@ class _Car_Bid_detialsState extends State<Car_Bid_details> {
               ),
               SizedBox(height: screenHeight * 0.02),
               Container(
-                width: screenWidth * 0.95, // 95% of screen width
-                height: screenHeight * 0.09, // 9% of screen height
+                width: screenWidth * 0.95,
+                height: screenHeight * 0.09,
                 decoration: const BoxDecoration(
                   borderRadius: BorderRadius.all(Radius.circular(10)),
                   color: Color.fromRGBO(27, 27, 27, 1),
@@ -134,9 +147,9 @@ class _Car_Bid_detialsState extends State<Car_Bid_details> {
                             size: screenWidth * 0.08,
                           ),
                           SizedBox(height: screenHeight * 0.01),
-                          const Text(
-                            '12 to 16 km/hr',
-                            style: TextStyle(color: Colors.white, fontSize: 16),
+                          Text(
+                            '$distance km',
+                            style: const TextStyle(color: Colors.white, fontSize: 16),
                           ),
                         ],
                       ),
@@ -149,9 +162,9 @@ class _Car_Bid_detialsState extends State<Car_Bid_details> {
                             size: screenWidth * 0.08,
                           ),
                           SizedBox(height: screenHeight * 0.01),
-                          const Text(
-                            'Automatic',
-                            style: TextStyle(color: Colors.white, fontSize: 16),
+                          Text(
+                            transmission,
+                            style: const TextStyle(color: Colors.white, fontSize: 16),
                           ),
                         ],
                       ),
@@ -164,22 +177,59 @@ class _Car_Bid_detialsState extends State<Car_Bid_details> {
                             size: screenWidth * 0.07,
                           ),
                           SizedBox(height: screenHeight * 0.01),
-                          const Text(
-                            'Petrol',
-                            style: TextStyle(color: Colors.white, fontSize: 16),
+                          Text(
+                            fuel,
+                            style: const TextStyle(color: Colors.white, fontSize: 16),
                           ),
                         ],
                       ),
                     ],
                   ),
                 ),
-              // SizedBox(height: screenHeight * 0.02),
               Padding(
                 padding: EdgeInsets.all(screenWidth * 0.02),
-                child: const Text(
-                  "B2B Genuine, 1st owner, Bio Available, Extra Accessories installed. Just like a Zero Meter car.",
-                  textAlign: TextAlign.justify,
-                  style: TextStyle(color: Colors.white, fontSize: 17),
+                child: Container(
+                  width: screenWidth * 0.95,
+                  height: screenHeight * 0.09,
+                  decoration: const BoxDecoration(
+                  borderRadius: BorderRadius.all(Radius.circular(10)),
+                  color: Color.fromRGBO(27, 27, 27, 1),
+                  ),
+                  child: Center(
+                    child: Text(
+                      description,
+                      // textAlign: TextAlign.justify,
+                      style: const TextStyle(color: Colors.white, fontSize: 17),
+                    ),
+                  ),
+                ),
+              ),
+              // Additional car details section
+              Padding(
+                padding: EdgeInsets.all(screenWidth * 0.03),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Registration City: $registrationCity',
+                      style: const TextStyle(color: Colors.white, fontSize: 16),
+                    ),
+                    SizedBox(height: screenHeight * 0.01),
+                    Text(
+                      'Horse Power: $horsePower',
+                      style: const TextStyle(color: Colors.white, fontSize: 16),
+                    ),
+                    SizedBox(height: screenHeight * 0.01),
+                    Text(
+                      'Bid Start Time: $startTime',
+                      style: const TextStyle(color: Colors.white, fontSize: 16),
+                    ),
+                    SizedBox(height: screenHeight * 0.01),
+                    Text(
+                      'Bid End Time: $endTime',
+                      style: const TextStyle(color: Colors.white, fontSize: 16),
+                    ),
+                  ],
                 ),
               ),
               SizedBox(height: screenHeight * 0.02),
@@ -194,8 +244,8 @@ class _Car_Bid_detialsState extends State<Car_Bid_details> {
                       );
                     },
                     child: Container(
-                      width: screenWidth * 0.4, // 40% of screen width
-                      height: screenHeight * 0.07, // 7% of screen height
+                      width: screenWidth * 0.4,
+                      height: screenHeight * 0.07,
                       decoration: BoxDecoration(
                         color: const Color(0xFFECD801),
                         borderRadius: BorderRadius.circular(15),
@@ -211,14 +261,14 @@ class _Car_Bid_detialsState extends State<Car_Bid_details> {
                   TextButton(
                     onPressed: () {
                       if (widget.art) {
-
+                        // AR Visualization logic
                       } else {
-                        // Navigate to the Predict Price screen
                         Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (context) => PredictScreen(
                               imageurl: widget.imageUrl,
+                              carData: widget.carData, // Pass car data to PredictScreen
                             ),
                           ),
                         );

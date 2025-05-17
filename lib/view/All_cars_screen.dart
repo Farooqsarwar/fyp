@@ -1,7 +1,5 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-
+import '../models/fetching data.dart';
 import 'Appbar.dart';
 import 'Cars_Bid_detial_and placing.dart';
 import 'Drawer.dart';
@@ -16,19 +14,44 @@ class AllCarsScreen extends StatefulWidget {
 }
 
 class _AllCarsScreenState extends State<AllCarsScreen> {
-  List<dynamic> carData = [];
-  Future<void> loadJsonData() async {
-    final String response = await rootBundle.loadString('assets/cars.json');
-    final data = json.decode(response);
-    setState(() {
-      carData = data;
-    });
-  }
+  final BidsService _bidsService = BidsService();
+  List<Map<String, dynamic>> carData = [];
+  bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    loadJsonData();
+    fetchCarData();
+    // Add listener for real-time updates
+    _bidsService.addListener(_handleBidsUpdate);
+  }
+
+  void _handleBidsUpdate() {
+    fetchCarData();
+  }
+
+  Future<void> fetchCarData() async {
+    try {
+      setState(() => _loading = true);
+
+      // Use the BidsService to fetch car bids
+      final cars = await _bidsService.fetchCarBids();
+
+      setState(() {
+        carData = cars;
+        _loading = false;
+      });
+    } catch (e) {
+      debugPrint("Error fetching cars: $e");
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    // Remove listener when disposed
+    _bidsService.removeListener(_handleBidsUpdate);
+    super.dispose();
   }
 
   @override
@@ -39,90 +62,159 @@ class _AllCarsScreenState extends State<AllCarsScreen> {
           context,
           MaterialPageRoute(builder: (context) => Homescreen()),
         );
-        // Prevent default back action
         return false;
       },
       child: Scaffold(
         backgroundColor: Colors.black,
         appBar: const Appbar(),
         bottomNavigationBar: const Navigationbar(),
-        endDrawer:  CustomDrawer(),
-        body: ListView.builder(
-          itemCount: carData.length,
-          itemBuilder: (context, index) {
-            return Padding(
-              padding: const EdgeInsets.all(5.0),
-              child: InkWell(
-                onTap: () {
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
+        endDrawer: CustomDrawer(),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : carData.isEmpty
+            ? Center(
+          child: Text(
+            'No cars available',
+            style: TextStyle(color: Colors.white),
+          ),
+        )
+            : RefreshIndicator(
+          onRefresh: fetchCarData,
+          child: ListView.builder(
+            itemCount: carData.length,
+            itemBuilder: (context, index) {
+              final car = carData[index];
+              final imageUrl = _bidsService.getFirstImageUrl(car);
+              final title = _bidsService.formatTitle(car);
+              final startTime = _bidsService.formatDateTime(car['start_time']);
+              final price = car['price'] ?? 'N/A';
+
+              return Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Card(
+                  color: const Color(0Xff1C1C1C),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(15),
+                  ),
+                  child: InkWell(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
                           builder: (context) => Car_Bid_details(
-                              imageUrl: carData[index]['image'],
-                              title: carData[index]['title'],
-                            art: false,)));
-                },
-                child: Container(
-                  height: 120,
-                  decoration: BoxDecoration(
-                      color: const Color(0Xff1C1C1C),
-                      borderRadius: BorderRadius.circular(15)),
-                  child: Row(
-                    children: [
-                      const SizedBox(
-                        width: 3,
-                      ),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: Image.network(
-                          carData[index]['image'],
-                          width: 135,
-                          height: 145,
-                          fit: BoxFit.cover,
+                            imageUrl: imageUrl,
+                            title: title.isNotEmpty ? title : 'No Title',
+                            art: false,
+                            carData: car,
+                          ),
                         ),
-                      ),
-                      const SizedBox(
-                        width: 15,
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      );
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: Row(
                         children: [
-                          const SizedBox(
-                            height: 10,
-                          ),
-                          Text(
-                            carData[index]['title'],
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 18),
-                          ),
-                          const SizedBox(
-                            height: 10,
-                          ),
-                          const Text(
-                            "Bid Start Time",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Image.network(
+                              imageUrl,
+                              width: 120,
+                              height: 100,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) =>
+                                  Container(
+                                    width: 120,
+                                    height: 100,
+                                    color: Colors.grey[800],
+                                    child: const Icon(
+                                      Icons.car_repair,
+                                      color: Colors.white,
+                                    ),
+                                  ),
                             ),
                           ),
-                          const SizedBox(
-                            height: 10,
-                          ),
-                          const Text(
-                            "40,000pkr",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
+                          const SizedBox(width: 15),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  title,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.schedule,
+                                      color: Colors.white54,
+                                      size: 16,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Starts: $startTime',
+                                      style: const TextStyle(
+                                        color: Colors.white54,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.money,
+                                      color: Colors.white54,
+                                      size: 16,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      '$price PKR',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                if (car['is_active'] == true)
+                                  Container(
+                                    margin: const EdgeInsets.only(top: 4),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.green[800],
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Text(
+                                      'Active',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
                         ],
-                      )
-                    ],
+                      ),
+                    ),
                   ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
       ),
     );

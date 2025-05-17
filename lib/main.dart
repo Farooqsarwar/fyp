@@ -8,8 +8,8 @@ import 'firebase_options.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Supabase.initialize(
-    url: "https://kfsyfyvykhghuugaclrb.supabase.co",
-    anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtmc3lmeXZ5a2hnaHV1Z2FjbHJiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDI2NDAyODQsImV4cCI6MjA1ODIxNjI4NH0.USH3sOd-z1atuHSC10Dks8Flwg8oeKzyc8IKixRmLSc",
+    url: "https://ejqogqnyskhakdlziesp.supabase.co",
+    anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqcW9ncW55c2toYWtkbHppZXNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDcwMzQ3OTIsImV4cCI6MjA2MjYxMDc5Mn0.BzQpXwZuVBouTQB3bGZVg77SbKhtkrbeowN8ksiDn0k",
   );
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,

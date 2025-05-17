@@ -57,7 +57,7 @@ class _NavigationbarState extends State<Navigationbar> {
         } else if (index == 4) {
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (context) => const AllArtScreen()),
+            MaterialPageRoute(builder: (context) =>  AllArtScreen()),
           );
         }
       },

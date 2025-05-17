@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 class PredictScreen extends StatelessWidget {
   final String imageurl;
-  const PredictScreen({super.key, required this.imageurl});
+  const PredictScreen({super.key, required this.imageurl, Map<String, dynamic>? carData});
   void showDialogueBox(BuildContext context, String title, {required String contextText}) {
     showDialog(
       context: context,

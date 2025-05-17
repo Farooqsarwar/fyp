@@ -1,9 +1,7 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-
+import '../models/fetching data.dart';
 import 'Appbar.dart';
+import 'Art_Furniture_detials_screen.dart';
 import 'Cars_Bid_detial_and placing.dart';
 import 'Drawer.dart';
 import 'Homescreen.dart';
@@ -17,18 +15,44 @@ class AllFurnitureScreen extends StatefulWidget {
 }
 
 class _AllFurnitureScreenState extends State<AllFurnitureScreen> {
-  List<dynamic> furnituredata = [];
-  Future<void> loadJsonData() async {
-    final String response = await rootBundle.loadString('assets/furniture.json');
-    final data = json.decode(response);
-    setState(() {
-      furnituredata = data;
-    });
-  }
+  final BidsService _bidsService = BidsService();
+  List<Map<String, dynamic>> furnitureData = [];
+  bool _loading = true;
+
   @override
   void initState() {
     super.initState();
-    loadJsonData();
+    fetchFurnitureData();
+    // Add listener for real-time updates
+    _bidsService.addListener(_handleBidsUpdate);
+  }
+
+  void _handleBidsUpdate() {
+    fetchFurnitureData();
+  }
+
+  Future<void> fetchFurnitureData() async {
+    try {
+      setState(() => _loading = true);
+
+      // Use the BidsService to fetch furniture bids
+      final furniture = await _bidsService.fetchFurnitureBids();
+
+      setState(() {
+        furnitureData = furniture;
+        _loading = false;
+      });
+    } catch (e) {
+      debugPrint("Error fetching furniture: $e");
+      setState(() => _loading = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    // Remove listener when disposed
+    _bidsService.removeListener(_handleBidsUpdate);
+    super.dispose();
   }
 
   @override
@@ -39,85 +63,104 @@ class _AllFurnitureScreenState extends State<AllFurnitureScreen> {
           context,
           MaterialPageRoute(builder: (context) => Homescreen()),
         );
-        // Prevent default back action
         return false;
       },
       child: Scaffold(
         backgroundColor: Colors.black,
         appBar: const Appbar(),
         bottomNavigationBar: const Navigationbar(),
-        endDrawer:  CustomDrawer(),
-        body: ListView.builder(
-          itemCount: furnituredata.length,
+        endDrawer: CustomDrawer(),
+        body: _loading
+            ? Center(child: CircularProgressIndicator())
+            : furnitureData.isEmpty
+            ? Center(child: Text('No furniture available', style: TextStyle(color: Colors.white)))
+            : ListView.builder(
+          itemCount: furnitureData.length,
           itemBuilder: (context, index) {
+            final furnitureItem = furnitureData[index];
+            final imageUrl = _bidsService.getFirstImageUrl(furnitureItem);
+
             return Padding(
               padding: const EdgeInsets.all(5.0),
               child: InkWell(
                 onTap: () {
                   Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => Car_Bid_details(
-                            imageUrl: furnituredata[index]['image'],
-                            title: furnituredata[index]['title'],
-                            art: true,)
-                      ));
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => Art_Furniture_Detials_Screen(
+                        imageUrl: imageUrl,
+                        title: furnitureItem['title'] ?? 'No Title',
+                        isArt: false,
+                        itemData: furnitureItem,
+                      ),
+                    ),
+                  );
                 },
                 child: Container(
                   height: 120,
                   decoration: BoxDecoration(
-                      color: const Color(0Xff1C1C1C),
-                      borderRadius: BorderRadius.circular(15)),
+                    color: const Color(0Xff1C1C1C),
+                    borderRadius: BorderRadius.circular(15),
+                  ),
                   child: Row(
                     children: [
-                      const SizedBox(
-                        width: 3,
-                      ),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: Image.network(
-                          furnituredata[index]['image'],
-                          width: 135,
-                          height: 145,
-                          fit: BoxFit.cover,
+                      const SizedBox(width: 3),
+                      // Image container with fixed width
+                      Container(
+                        width: 135,
+                        height: 145,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: Image.network(
+                            imageUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) =>
+                                Container(
+                                  color: Colors.grey,
+                                  child: Icon(Icons.error, color: Colors.white),
+                                ),
+                          ),
                         ),
                       ),
-                      const SizedBox(
-                        width: 15,
+                      const SizedBox(width: 15),
+                      // Text content that can expand
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              Text(
+                                furnitureItem['title'] ?? 'No Title',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                maxLines: 1,
+                              ),
+                              Text(
+                                "Bid Start: ${_bidsService.formatDateTime(furnitureItem['start_time'])}",
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                maxLines: 1,
+                              ),
+                              Text(
+                                "${furnitureItem['price'] ?? 'N/A'} pkr",
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const SizedBox(
-                            height: 10,
-                          ),
-                          Text(
-                            furnituredata[index]['title'],
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 18),
-                          ),
-                          const SizedBox(
-                            height: 10,
-                          ),
-                          const Text(
-                            "Bid Start Time",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                            ),
-                          ),
-                          const SizedBox(
-                            height: 10,
-                          ),
-                          const Text(
-                            "40,000pkr",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                            ),
-                          ),
-                        ],
-                      )
+                      const SizedBox(width: 10), // Add some right padding
                     ],
                   ),
                 ),

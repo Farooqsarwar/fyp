@@ -11,12 +11,13 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-bool isObscured = true;
-final _formKey = GlobalKey<FormState>();
-final TextEditingController emailController = TextEditingController();
-final TextEditingController passwordController = TextEditingController();
-
 class _LoginScreenState extends State<LoginScreen> {
+  // Move these variables inside the class to make them instance variables
+  // This prevents them from being global and causing conflicts with other screens
+  bool isObscured = true;
+  final _formKey = GlobalKey<FormState>();
+  final TextEditingController emailController = TextEditingController();
+  final TextEditingController passwordController = TextEditingController();
   final SupabaseClient supabase = Supabase.instance.client;
 
   @override
@@ -245,5 +246,13 @@ class _LoginScreenState extends State<LoginScreen> {
         print("Login failed: $e");
       }
     }
+  }
+
+  @override
+  void dispose() {
+    // Clean up the controllers when the widget is disposed
+    emailController.dispose();
+    passwordController.dispose();
+    super.dispose();
   }
 }

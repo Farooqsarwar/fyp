@@ -17,9 +17,7 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   final TextEditingController nameController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
-  final TextEditingController retypePasswordController =
-      TextEditingController();
-
+  final TextEditingController retypePasswordController = TextEditingController();
   final supabase = Supabase.instance.client;
 
   @override
@@ -264,7 +262,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           'name': nameController.text.trim(),
           'email': emailController.text.trim(),
         });
-
         clearFormFields();
         Navigator.pushReplacement(
           context,
@@ -286,3 +283,4 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
     }
   }
 }
+

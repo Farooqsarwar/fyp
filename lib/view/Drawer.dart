@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:fyp/view/Login_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../models/fetching user data.dart';
 import 'Live_Biding.dart';
 import 'bidwinscreen.dart';
-import 'models/fetching user data.dart';
 
 class CustomDrawer extends StatefulWidget {
   const CustomDrawer({Key? key}) : super(key: key);
@@ -94,7 +94,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
 
   Widget _buildDrawerHeader() {
     return SizedBox(
-      height: 270,
+      height: 300,
       width: double.infinity,
       child: DrawerHeader(
         decoration: const BoxDecoration(color: Color(0xFF1B1B1B)),
@@ -113,7 +113,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                   ),
                 ),
                 Positioned(
-                  top: -10,
+                  top: -15,
                   right: 0,
                   child: IconButton(
                     onPressed: _updateProfilePicture,

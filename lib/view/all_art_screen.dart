@@ -1,10 +1,7 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-
+import '../models/fetching data.dart';
 import 'Appbar.dart';
-import 'Cars_Bid_detial_and placing.dart';
+import 'Art_Furniture_detials_screen.dart';
 import 'Drawer.dart';
 import 'Homescreen.dart';
 import 'Navigationbar.dart';
@@ -17,107 +14,176 @@ class AllArtScreen extends StatefulWidget {
 }
 
 class _AllArtScreenState extends State<AllArtScreen> {
-  List<dynamic> ArtData = [];
-  Future<void> loadJsonData() async {
-    final String response = await rootBundle.loadString('assets/art.json');
-    final data = json.decode(response);
-    setState(() {
-      ArtData = data;
-    });
-  }
+  final BidsService _bidsService = BidsService();
+  List<Map<String, dynamic>> artData = [];
+  bool _loading = true;
+
   @override
   void initState() {
     super.initState();
-    loadJsonData();
+    fetchArtData();
+    // Add listener to update UI when data changes
+    _bidsService.addListener(_onDataChanged);
+  }
+
+  @override
+  void dispose() {
+    // Remove listener when widget is disposed
+    _bidsService.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  // Callback for when data changes
+  void _onDataChanged() {
+    fetchArtData();
+  }
+
+  Future<void> fetchArtData() async {
+    try {
+      setState(() => _loading = true);
+      final data = await _bidsService.fetchArtBids();
+      setState(() {
+        artData = data;
+        _loading = false;
+      });
+    } catch (e) {
+      debugPrint('Error fetching art: $e');
+      setState(() => _loading = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
-        onWillPop: () async {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => Homescreen()),
-          );
-          // Prevent default back action
-          return false;
-        },
+      onWillPop: () async {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const Homescreen()),
+        );
+        return false;
+      },
       child: Scaffold(
         backgroundColor: Colors.black,
         appBar: const Appbar(),
         bottomNavigationBar: const Navigationbar(),
-        endDrawer:  CustomDrawer(),
-        body: ListView.builder(
-          itemCount: ArtData.length,
+        endDrawer: const CustomDrawer(),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : artData.isEmpty
+            ? const Center(
+          child: Text(
+            'No art available',
+            style: TextStyle(color: Colors.white),
+          ),
+        )
+            : ListView.builder(
+          itemCount: artData.length,
           itemBuilder: (context, index) {
+            final art = artData[index];
+            final imageUrl = _bidsService.getFirstImageUrl(art);
+
             return Padding(
               padding: const EdgeInsets.all(5.0),
               child: InkWell(
                 onTap: () {
                   Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => Car_Bid_details(
-                              imageUrl: ArtData[index]['image'],
-                              title: ArtData[index]['title'],
-                            art: true,)
-                      ));
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => Art_Furniture_Detials_Screen(
+                        imageUrl: imageUrl,
+                        title: art['title'] ?? 'No Title',
+                        isArt: true,  // Changed to true for art items
+                        itemData: art,
+                      ),
+                    ),
+                  );
                 },
                 child: Container(
                   height: 120,
                   decoration: BoxDecoration(
-                      color: const Color(0Xff1C1C1C),
-                      borderRadius: BorderRadius.circular(15)),
+                    color: const Color(0Xff1C1C1C),
+                    borderRadius: BorderRadius.circular(15),
+                  ),
                   child: Row(
                     children: [
-                      const SizedBox(
-                        width: 3,
-                      ),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: Image.network(
-                          ArtData[index]['image'],
-                          width: 135,
-                          height: 145,
-                          fit: BoxFit.cover,
+                      const SizedBox(width: 3),
+                      // Image container with fixed width
+                      Container(
+                        width: 135,
+                        height: 145,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: Image.network(
+                            imageUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) =>
+                                Container(
+                                  color: Colors.grey,
+                                  child: const Icon(
+                                    Icons.error,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                          ),
                         ),
                       ),
-                      const SizedBox(
-                        width: 15,
+                      const SizedBox(width: 15),
+                      // Text content that can expand
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              Text(
+                                art['title'] ?? 'No Title',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                maxLines: 1,
+                              ),
+                              Text(
+                                "Bid Start: ${_bidsService.formatDateTime(art['start_time'])}",
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 16,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                maxLines: 1,
+                              ),
+                              Text(
+                                "${art['price'] ?? 'N/A'} pkr",
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 18,
+                                ),
+                              ),
+                              if (art['is_active'] == true)
+                                Container(
+                                  margin: const EdgeInsets.only(top: 4),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green[800],
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'Active',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
                       ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const SizedBox(
-                            height: 10,
-                          ),
-                          Text(
-                            ArtData[index]['title'],
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 18),
-                          ),
-                          const SizedBox(
-                            height: 10,
-                          ),
-                          const Text(
-                            "Bid Start Time",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                            ),
-                          ),
-                          const SizedBox(
-                            height: 10,
-                          ),
-                          const Text(
-                            "40,000pkr",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                            ),
-                          ),
-                        ],
-                      )
                     ],
                   ),
                 ),
