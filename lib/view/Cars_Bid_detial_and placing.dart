@@ -1,34 +1,72 @@
 import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'Predict_price_screen.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../services/auction_services.dart';
+import '../services/notification_services.dart';
+import 'bidwinscreen.dart';
+import 'Live_Biding.dart';
 
-class Car_Bid_details extends StatefulWidget {
+class CarBidDetails extends StatefulWidget {
   final String imageUrl;
   final String title;
-  final bool art;
-  final Map<String, dynamic>? carData; // Add this parameter
+  final Map<String, dynamic>? carData;
 
-  const Car_Bid_details({
+  const CarBidDetails({
     super.key,
     required this.imageUrl,
     required this.title,
-    required this.art,
-    this.carData, // Make it optional
+    this.carData,
   });
 
   @override
-  State<Car_Bid_details> createState() => _Car_Bid_detialsState();
+  State<CarBidDetails> createState() => _CarBidDetailsState();
 }
 
-class _Car_Bid_detialsState extends State<Car_Bid_details> {
+class _CarBidDetailsState extends State<CarBidDetails> {
+  final AuctionService _auctionService = AuctionService(
+    supabase: Supabase.instance.client,
+  );
+  final NotificationService _notificationService = NotificationService(
+    supabase: Supabase.instance.client,
+  );
+  final TextEditingController _bidController = TextEditingController();
+  double _currentBid = 0;
+  bool _isPlacingBid = false;
+  bool _auctionEnded = false;
+  String? _highestBidderId;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentBid = double.tryParse(widget.carData?['price']?.toString() ?? '0') ?? 0;
+    _setupRealTimeUpdates();
+  }
+
+  void _setupRealTimeUpdates() {
+    // Listen for new bids
+    _auctionService.getBidsForAuction(widget.carData?['id'], 'car').listen((bids) {
+      if (bids.isNotEmpty) {
+        setState(() {
+          _currentBid = (bids.first['amount'] as num).toDouble();
+          _highestBidderId = bids.first['user_id'] as String?;
+        });
+      }
+    });
+
+    // Listen for auction status changes
+    _auctionService.getAuctionById(widget.carData?['id'], 'car').listen((auction) {
+      if (auction != null && auction['is_active'] == false) {
+        setState(() {
+          _auctionEnded = true;
+        });
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
-
-    // Extract car details from carData
-    final price = widget.carData?['price'] ?? 'N/A';
-    final description = widget.carData?['description'] ?? 'B2B Genuine, 1st owner, Bio Available, Extra Accessories installed. Just like a Zero Meter car.';
+    // Extract item details from carData
+    final description = widget.carData?['description'] ??
+        'This car is in excellent condition and comes with additional features.';
     final distance = widget.carData?['distance'] ?? 'N/A';
     final transmission = widget.carData?['transmission'] ?? 'Automatic';
     final fuel = widget.carData?['fuel'] ?? 'Petrol';
@@ -37,290 +75,391 @@ class _Car_Bid_detialsState extends State<Car_Bid_details> {
     final startTime = widget.carData?['start_time'] ?? 'N/A';
     final endTime = widget.carData?['end_time'] ?? 'N/A';
 
-    return SafeArea(
-      child: Scaffold(
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
         backgroundColor: Colors.black,
-        body: SingleChildScrollView(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.start,
-            children: [
-              Stack(
-                children: [
-                  ClipRRect(
-                    borderRadius: const BorderRadius.only(
-                      bottomLeft: Radius.circular(15),
-                      bottomRight: Radius.circular(15),
-                    ),
-                    child: Image.network(
-                      widget.imageUrl,
-                      fit: BoxFit.cover,
-                      width: screenWidth,
-                      height: screenHeight * 0.5,
-                    ),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.yellow),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: const Text(
+          'Car Details',
+          style: TextStyle(color: Colors.white),
+        ),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Main Image
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.network(
+                widget.imageUrl,
+                width: double.infinity,
+                height: 250,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  height: 250,
+                  color: Colors.grey[800],
+                  child: const Center(
+                    child: Icon(Icons.image_not_supported, size: 80, color: Colors.white),
                   ),
-                  Positioned(
-                    top: screenHeight * 0.4,
-                    child: Container(
-                      width: screenWidth,
-                      height: screenHeight * 0.1,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(15),
-                        color: const Color.fromRGBO(27, 27, 27, 0.6980392156862745),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    top: screenHeight * 0.4,
-                    left: 10,
-                    child: Text(
-                      "Bid Initial Price: $price pkr",
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    top: screenHeight * 0.465,
-                    right: 15,
-                    child: const Text(
-                      "Total Bids: 12",
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                  Container(
-                    decoration: const BoxDecoration(
-                        borderRadius: BorderRadius.all(Radius.circular(120)),
-                        color: Color.fromRGBO(0, 0, 0, 0.76)
-                    ),
-                    child: IconButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                      },
-                      icon: const Icon(
-                        Icons.arrow_back,
-                        size: 25,
-                        color: Colors.yellow,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              SizedBox(height: screenHeight * 0.02),
-              Container(
-                width: screenWidth * 0.95,
-                height: screenHeight * 0.09,
-                decoration: const BoxDecoration(
-                  borderRadius: BorderRadius.all(Radius.circular(10)),
-                  color: Color.fromRGBO(27, 27, 27, 1),
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 17.0, left: 10),
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Title and Price Section
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
                   child: Text(
                     widget.title,
                     style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
                       color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.yellow.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.yellow),
+                  ),
+                  child: Text(
+                    'PKR ${_currentBid.toStringAsFixed(0)}',
+                    style: const TextStyle(
+                      color: Colors.yellow,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+
+            // Description Section
+            const Text(
+              'Description',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
               ),
-              SizedBox(height: screenHeight * 0.02),
-              if (!widget.art)
-                Padding(
-                  padding: const EdgeInsets.only(left: 10, right: 10),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.shutter_speed,
-                            color: Colors.white,
-                            size: screenWidth * 0.08,
-                          ),
-                          SizedBox(height: screenHeight * 0.01),
-                          Text(
-                            '$distance km',
-                            style: const TextStyle(color: Colors.white, fontSize: 16),
-                          ),
-                        ],
-                      ),
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          FaIcon(
-                            FontAwesomeIcons.gears,
-                            color: Colors.white,
-                            size: screenWidth * 0.08,
-                          ),
-                          SizedBox(height: screenHeight * 0.01),
-                          Text(
-                            transmission,
-                            style: const TextStyle(color: Colors.white, fontSize: 16),
-                          ),
-                        ],
-                      ),
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          FaIcon(
-                            FontAwesomeIcons.gasPump,
-                            color: Colors.white,
-                            size: screenWidth * 0.07,
-                          ),
-                          SizedBox(height: screenHeight * 0.01),
-                          Text(
-                            fuel,
-                            style: const TextStyle(color: Colors.white, fontSize: 16),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              Padding(
-                padding: EdgeInsets.all(screenWidth * 0.02),
-                child: Container(
-                  width: screenWidth * 0.95,
-                  height: screenHeight * 0.09,
-                  decoration: const BoxDecoration(
-                  borderRadius: BorderRadius.all(Radius.circular(10)),
-                  color: Color.fromRGBO(27, 27, 27, 1),
-                  ),
-                  child: Center(
-                    child: Text(
-                      description,
-                      // textAlign: TextAlign.justify,
-                      style: const TextStyle(color: Colors.white, fontSize: 17),
-                    ),
-                  ),
-                ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1C1C1C),
+                borderRadius: BorderRadius.circular(8),
               ),
-              // Additional car details section
-              Padding(
-                padding: EdgeInsets.all(screenWidth * 0.03),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Registration City: $registrationCity',
-                      style: const TextStyle(color: Colors.white, fontSize: 16),
-                    ),
-                    SizedBox(height: screenHeight * 0.01),
-                    Text(
-                      'Horse Power: $horsePower',
-                      style: const TextStyle(color: Colors.white, fontSize: 16),
-                    ),
-                    SizedBox(height: screenHeight * 0.01),
-                    Text(
-                      'Bid Start Time: $startTime',
-                      style: const TextStyle(color: Colors.white, fontSize: 16),
-                    ),
-                    SizedBox(height: screenHeight * 0.01),
-                    Text(
-                      'Bid End Time: $endTime',
-                      style: const TextStyle(color: Colors.white, fontSize: 16),
-                    ),
-                  ],
-                ),
+              child: Text(
+                description,
+                style: const TextStyle(color: Colors.white, fontSize: 16),
               ),
-              SizedBox(height: screenHeight * 0.02),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            ),
+
+            const SizedBox(height: 20),
+
+            // Specifications Section
+            const Text(
+              'Specifications',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1C1C1C),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  TextButton(
-                    onPressed: () {
-                      showDialogueBox(
-                        context,
-                        "Your Bid has been placed",
-                      );
-                    },
-                    child: Container(
-                      width: screenWidth * 0.4,
-                      height: screenHeight * 0.07,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFECD801),
-                        borderRadius: BorderRadius.circular(15),
+                  _buildDetailRow('Distance:', distance),
+                  _buildDetailRow('Transmission:', transmission),
+                  _buildDetailRow('Fuel:', fuel),
+                  _buildDetailRow('Registration City:', registrationCity),
+                  _buildDetailRow('Horse Power:', horsePower),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            // Auction Timing Section
+            const Text(
+              'Auction Timing',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1C1C1C),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildDetailRow('Starts:', startTime.toString()),
+                  _buildDetailRow('Ends:', endTime.toString()),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 30),
+
+            // Action Buttons
+            if (!_auctionEnded) ...[
+              // Place Bid Section
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _bidController,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: Colors.grey[900],
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          borderSide: BorderSide.none,
+                        ),
+                        hintText: "Enter bid amount",
+                        hintStyle: const TextStyle(color: Colors.white70),
+                        prefixText: "PKR ",
+                        prefixStyle: const TextStyle(color: Colors.yellow),
                       ),
-                      child: const Center(
-                        child: Text(
-                          "Place Bid",
-                          style: TextStyle(color: Colors.black, fontSize: 20),
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  IconButton(
+                    icon: const Icon(Icons.add, color: Colors.yellow),
+                    onPressed: () {
+                      final current = double.tryParse(_bidController.text) ?? 0;
+                      _bidController.text = (current + 1000).toStringAsFixed(0);
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFECD801),
+                  minimumSize: const Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: _isPlacingBid ? null : _placeBid,
+                child: _isPlacingBid
+                    ? const CircularProgressIndicator(color: Colors.black)
+                    : const Text(
+                  "PLACE BID",
+                  style: TextStyle(
+                    color: Colors.black,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Live Bidding & Bid Results buttons
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.live_tv, color: Colors.black),
+                      label: const Text(
+                        "LIVE BIDDING",
+                        style: TextStyle(
+                          color: Colors.black,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.amber,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      onPressed: _navigateToLiveBidding,
                     ),
                   ),
-                  TextButton(
-                    onPressed: () {
-                      if (widget.art) {
-                        // AR Visualization logic
-                      } else {
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.analytics, color: Colors.white),
+                      label: const Text(
+                        "BID RESULTS",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.grey[800],
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      onPressed: () {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => PredictScreen(
-                              imageurl: widget.imageUrl,
-                              carData: widget.carData, // Pass car data to PredictScreen
+                            builder: (context) => BidWinScreen(
+                              imageUrl: widget.imageUrl,
+                              itemTitle: widget.title,
+                              winningAmount: 'PKR ${_currentBid.toStringAsFixed(0)}',
+                              isBidFinished: _auctionEnded,
                             ),
                           ),
                         );
-                      }
-                    },
-                    child: Container(
-                      width: screenWidth * 0.45,
-                      height: screenHeight * 0.07,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFECD801),
-                        borderRadius: BorderRadius.circular(15),
-                      ),
-                      child: Center(
-                        child: Text(
-                          widget.art ? "AR Visualization" : "Predict Price",
-                          style: const TextStyle(color: Colors.black, fontSize: 20),
-                        ),
-                      ),
+                      },
                     ),
                   ),
                 ],
               ),
-            ],
-          ),
+            ] else
+            // Auction Ended
+              Column(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[900],
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Center(
+                      child: Text(
+                        "Auction has ended",
+                        style: TextStyle(
+                          color: Colors.yellow,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  )
+                ],
+              ),
+          ],
         ),
       ),
     );
   }
 
-  void showDialogueBox(BuildContext context, String title) {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          backgroundColor: const Color.fromARGB(255, 27, 27, 27),
-          title: Text(
-            title,
-            style: const TextStyle(color: Colors.yellow),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              child: const Text(
-                "OK",
-                style: TextStyle(color: Colors.yellow),
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 150,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Colors.grey,
+                fontSize: 16,
               ),
             ),
-          ],
-        );
-      },
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(color: Colors.white, fontSize: 16),
+            ),
+          ),
+        ],
+      ),
     );
+  }
+
+  void _navigateToLiveBidding() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => LiveBidscreen(
+          itemId: widget.carData?['id'] ?? '',
+          itemType: 'car',
+          itemTitle: widget.title,
+          imageUrl: widget.imageUrl,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _placeBid() async {
+    final bidAmount = double.tryParse(_bidController.text);
+    if (bidAmount == null || bidAmount <= _currentBid) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Bid must be higher than ${_currentBid.toStringAsFixed(0)} PKR',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isPlacingBid = true);
+    try {
+      await _auctionService.placeBid(
+        itemId: widget.carData?['id'],
+        itemType: 'car',
+        amount: bidAmount,
+      );
+      _bidController.clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Bid placed successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error placing bid: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      setState(() => _isPlacingBid = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _bidController.dispose();
+    super.dispose();
   }
 }

@@ -5,8 +5,7 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:fyp/view/Login_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/fetching user data.dart';
-import 'Live_Biding.dart';
-import 'bidwinscreen.dart';
+
 
 class CustomDrawer extends StatefulWidget {
   const CustomDrawer({Key? key}) : super(key: key);
@@ -138,14 +137,20 @@ class _CustomDrawerState extends State<CustomDrawer> {
       child: ListView(
         children: [
           _buildDrawerItem(Icons.list_alt_rounded, "Placed Bids", () => Navigator.pop(context)),
-          _buildDrawerItem(Icons.outbound_sharp, "Ongoing Bids", () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const LiveBidscreen()),
-          )),
-          _buildDrawerItem(FontAwesomeIcons.trophy, "Win Bids", () => Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const BidWinScreen()),
-          )),
+          _buildDrawerItem(Icons.outbound_sharp, "Ongoing Bids", ()
+          {
+                    // Navigator.push(
+                    //   context,
+                    //   MaterialPageRoute(
+                    //       builder: (context) => const LiveBidscreen()),
+                    // );
+                  }),
+          _buildDrawerItem(FontAwesomeIcons.trophy, "Win Bids", () {
+            // Navigator.push(
+            //   context,
+            //   MaterialPageRoute(builder: (context) => const BidWinScreen()),
+            // );
+          }),
           _buildDrawerItem(Icons.info_outline, "About Us", () {}),
           _buildDrawerItem(Icons.exit_to_app, "Logout", _signOut),
         ],

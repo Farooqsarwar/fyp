@@ -101,10 +101,9 @@ class _AllCarsScreenState extends State<AllCarsScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => Car_Bid_details(
+                          builder: (context) => CarBidDetails(
                             imageUrl: imageUrl,
                             title: title.isNotEmpty ? title : 'No Title',
-                            art: false,
                             carData: car,
                           ),
                         ),

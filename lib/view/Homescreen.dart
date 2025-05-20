@@ -136,10 +136,9 @@ class _HomescreenState extends State<Homescreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => Car_Bid_details(
+                      builder: (context) => CarBidDetails(
                         imageUrl: hasImages ? bid['images'][0] : '',
                         title: bid['bid_name'] ?? 'Untitled Bid',
-                        art: false,
                         carData: bid,
                       ),
                     ),
@@ -234,10 +233,9 @@ class _HomescreenState extends State<Homescreen> {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => Car_Bid_details(
+              builder: (context) => CarBidDetails(
                 imageUrl: hasImages ? bid['images'][0] : '',
                 title: bid['bid_name'] ?? 'Untitled Bid',
-                art: false,
                 carData: bid,
               ),
             ),
@@ -317,10 +315,9 @@ class _HomescreenState extends State<Homescreen> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => Car_Bid_details(
+                    builder: (context) => CarBidDetails(
                       imageUrl: hasImages ? bid['images'][0] : '',
                       title: bid['bid_name'] ?? 'Untitled Bid',
-                      art: false,
                       carData: bid,
                     ),
                   ),
