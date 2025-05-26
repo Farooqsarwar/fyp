@@ -47,7 +47,7 @@ class _NavigationbarState extends State<Navigationbar> {
         } else if (index == 2) {
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (context) => const UploadingBid()),
+            MaterialPageRoute(builder: (context) => const UploadingBidScreen()),
           );
         } else if (index == 3) {
           Navigator.pushReplacement(

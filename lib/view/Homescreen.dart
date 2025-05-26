@@ -1,6 +1,9 @@
 import 'package:carousel_slider/carousel_slider.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/fetching data.dart';
+import '../services/auction_services.dart';
 import 'All_cars_screen.dart';
 import 'Appbar.dart';
 import 'Cars_Bid_detial_and placing.dart';
@@ -10,6 +13,7 @@ import 'Navigationbar.dart';
 import 'all_art_screen.dart';
 import 'all_furniture_screen.dart';
 import 'Art_Furniture_detials_screen.dart';
+import 'Uploading_Bid.dart';
 
 class Homescreen extends StatefulWidget {
   const Homescreen({super.key});
@@ -20,7 +24,9 @@ class Homescreen extends StatefulWidget {
 
 class _HomescreenState extends State<Homescreen> {
   final BidsService _bidsService = BidsService();
-  late int carousalindx = 0;
+  final SupabaseClient _supabase = Supabase.instance.client;
+  late AuctionService _auctionService;
+  int carouselIndex = 0;
 
   List<Map<String, dynamic>> allBids = [];
   List<Map<String, dynamic>> carBids = [];
@@ -31,12 +37,32 @@ class _HomescreenState extends State<Homescreen> {
   @override
   void initState() {
     super.initState();
+    _auctionService = AuctionService(supabase: _supabase);
+    _auctionService.initialize();
     fetchBids();
     _bidsService.addListener(_handleBidsUpdate);
+    _setupRealtime();
   }
 
   void _handleBidsUpdate() {
     fetchBids();
+  }
+
+  void _setupRealtime() {
+    // Subscribe to changes in cars, art, furniture tables
+    for (final table in ['cars', 'art', 'furniture']) {
+      _supabase
+          .channel('public:$table')
+          .onPostgresChanges(
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: table,
+        callback: (payload) {
+          fetchBids();
+        },
+      )
+          .subscribe();
+    }
   }
 
   Future<void> fetchBids() async {
@@ -44,14 +70,32 @@ class _HomescreenState extends State<Homescreen> {
       setState(() => isLoading = true);
       final bidsData = await _bidsService.fetchAllBids();
       setState(() {
-        allBids = bidsData['allBids'];
-        carBids = bidsData['carBids'];
-        artBids = bidsData['artBids'];
-        furnitureBids = bidsData['furnitureBids'];
+        allBids = bidsData['allBids']!.map<Map<String, dynamic>>((bid) {
+          return {
+            ...bid,
+            'category': bid['item_type'] == 'cars'
+                ? 'Car'
+                : bid['item_type'] == 'art'
+                ? 'Art'
+                : 'Furniture',
+          };
+        }).toList();
+        carBids = bidsData['carBids']!.map<Map<String, dynamic>>((bid) {
+          return {...bid, 'category': 'Car', 'item_type': 'cars'};
+        }).toList();
+        artBids = bidsData['artBids']!.map<Map<String, dynamic>>((bid) {
+          return {...bid, 'category': 'Art', 'item_type': 'art'};
+        }).toList();
+        furnitureBids = bidsData['furnitureBids']!.map<Map<String, dynamic>>((bid) {
+          return {...bid, 'category': 'Furniture', 'item_type': 'furniture'};
+        }).toList();
         isLoading = false;
       });
     } catch (e) {
       debugPrint("Error fetching bids: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error fetching bids: $e')),
+      );
       setState(() => isLoading = false);
     }
   }
@@ -59,6 +103,8 @@ class _HomescreenState extends State<Homescreen> {
   @override
   void dispose() {
     _bidsService.removeListener(_handleBidsUpdate);
+    _auctionService.dispose();
+    _supabase.removeAllChannels();
     super.dispose();
   }
 
@@ -68,7 +114,19 @@ class _HomescreenState extends State<Homescreen> {
       onWillPop: () async => await ExitConfirmation.showExitDialog(context),
       child: Scaffold(
         backgroundColor: Colors.black,
-        appBar: const Appbar(),
+        appBar: Appbar(
+          // actions: [
+          //   IconButton(
+          //     icon: const Icon(Icons.add, color: Colors.white),
+          //     onPressed: () {
+          //       Navigator.push(
+          //         context,
+          //         MaterialPageRoute(builder: (context) => const UploadingBidScreen()),
+          //       ).then((_) => fetchBids());
+          //     },
+          //   ),
+          // ],
+        ),
         bottomNavigationBar: const Navigationbar(),
         endDrawer: const CustomDrawer(),
         body: isLoading
@@ -84,14 +142,11 @@ class _HomescreenState extends State<Homescreen> {
                 _buildCategorySection('Cars', carBids, const AllCarsScreen()),
                 _buildHorizontalBidList(carBids, 'car'),
               ],
-              if (furnitureBids.isNotEmpty) ...[
-                _buildCategorySection('Furniture', furnitureBids, const AllFurnitureScreen()),
-                _buildHorizontalBidList(furnitureBids, 'furniture'),
-              ],
               if (artBids.isNotEmpty) ...[
                 _buildCategorySection('Art', artBids, const AllArtScreen()),
                 _buildHorizontalBidList(artBids, 'art'),
               ],
+              const SizedBox(height: 20),
             ],
           ),
         ),
@@ -117,6 +172,7 @@ class _HomescreenState extends State<Homescreen> {
             final hasImages = bid['images'] != null && (bid['images'] as List).isNotEmpty;
             final isArt = bid['category'] == 'Art';
             final isFurniture = bid['category'] == 'Furniture';
+            final isActive = bid['is_active'] && DateTime.now().isBefore(DateTime.parse(bid['end_time']));
 
             return GestureDetector(
               onTap: () {
@@ -124,7 +180,7 @@ class _HomescreenState extends State<Homescreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => Art_Furniture_Detials_Screen(
+                      builder: (context) => ArtFurnitureDetailsScreen(
                         imageUrl: hasImages ? bid['images'][0] : '',
                         title: bid['bid_name'] ?? 'Untitled Bid',
                         isArt: isArt,
@@ -136,10 +192,10 @@ class _HomescreenState extends State<Homescreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => CarBidDetails(
+                      builder: (context) => CarBidDetailsScreen(
                         imageUrl: hasImages ? bid['images'][0] : '',
                         title: bid['bid_name'] ?? 'Untitled Bid',
-                        carData: bid,
+                        itemData: bid,
                       ),
                     ),
                   );
@@ -152,22 +208,43 @@ class _HomescreenState extends State<Homescreen> {
                 ),
                 child: Card(
                   color: const Color(0xFF1C1C1C),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(15)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
                   child: Column(
                     children: [
                       Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(15),
-                          child: hasImages
-                              ? Image.network(
-                            bid['images'][0],
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) =>
-                            const Icon(Icons.error, color: Colors.red),
-                          )
-                              : const Icon(Icons.image_not_supported,
-                              color: Colors.grey, size: 100),
+                        child: Stack(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(15),
+                              child: hasImages
+                                  ? Image.network(
+                                bid['images'][0],
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) => const Icon(
+                                  Icons.error,
+                                  color: Colors.red,
+                                ),
+                              )
+                                  : const Icon(
+                                Icons.image_not_supported,
+                                color: Colors.grey,
+                                size: 100,
+                              ),
+                            ),
+                            if (!isActive)
+                              Positioned(
+                                top: 10,
+                                right: 10,
+                                child: Container(
+                                  padding: const EdgeInsets.all(4),
+                                  color: Colors.red,
+                                  child: const Text(
+                                    'Ended',
+                                    style: TextStyle(color: Colors.white, fontSize: 12),
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                       Padding(
@@ -178,13 +255,18 @@ class _HomescreenState extends State<Homescreen> {
                             Text(
                               bid['bid_name'] ?? 'Untitled Bid',
                               style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold),
+                                color: Colors.white,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                             Text(
                               bid['category'],
                               style: const TextStyle(color: Colors.grey, fontSize: 12),
+                            ),
+                            Text(
+                              'Price: ${bid['price'].toStringAsFixed(2)} PKR',
+                              style: const TextStyle(color: Colors.yellow, fontSize: 12),
                             ),
                           ],
                         ),
@@ -201,7 +283,7 @@ class _HomescreenState extends State<Homescreen> {
             enlargeCenterPage: true,
             viewportFraction: 0.5,
             onPageChanged: (index, reason) {
-              setState(() => carousalindx = index);
+              setState(() => carouselIndex = index);
             },
           ),
         ),
@@ -210,18 +292,20 @@ class _HomescreenState extends State<Homescreen> {
   }
 
   Widget _buildPlaceBidButton() {
-    final bid = allBids[carousalindx];
+    final bid = allBids[carouselIndex];
     final isArt = bid['category'] == 'Art';
     final isFurniture = bid['category'] == 'Furniture';
     final hasImages = bid['images'] != null && (bid['images'] as List).isNotEmpty;
+    final isActive = bid['is_active'] && DateTime.now().isBefore(DateTime.parse(bid['end_time']));
 
     return TextButton(
-      onPressed: () {
+      onPressed: isActive
+          ? () {
         if (isArt || isFurniture) {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => Art_Furniture_Detials_Screen(
+              builder: (context) => ArtFurnitureDetailsScreen(
                 imageUrl: hasImages ? bid['images'][0] : '',
                 title: bid['bid_name'] ?? 'Untitled Bid',
                 isArt: isArt,
@@ -233,26 +317,27 @@ class _HomescreenState extends State<Homescreen> {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => CarBidDetails(
+              builder: (context) => CarBidDetailsScreen(
                 imageUrl: hasImages ? bid['images'][0] : '',
                 title: bid['bid_name'] ?? 'Untitled Bid',
-                carData: bid,
+                itemData: bid,
               ),
             ),
           );
         }
-      },
+      }
+          : null,
       child: Container(
         width: 150,
         height: 50,
         decoration: BoxDecoration(
-          color: const Color(0xFFECD801),
+          color: isActive ? const Color(0xFFECD801) : Colors.grey,
           borderRadius: BorderRadius.circular(15),
         ),
-        child: const Center(
+        child: Center(
           child: Text(
-            "Place Bid",
-            style: TextStyle(color: Colors.black, fontSize: 20),
+            isActive ? "Place Bid" : "Auction Ended",
+            style: const TextStyle(color: Colors.black, fontSize: 20),
           ),
         ),
       ),
@@ -261,13 +346,13 @@ class _HomescreenState extends State<Homescreen> {
 
   Widget _buildCategorySection(String title, List<Map<String, dynamic>> bids, Widget viewAllScreen) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
             title,
-            style: const TextStyle(color: Colors.white, fontSize: 20),
+            style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
           ),
           TextButton(
             onPressed: () => Navigator.push(
@@ -296,6 +381,7 @@ class _HomescreenState extends State<Homescreen> {
           final hasImages = bid['images'] != null && (bid['images'] as List).isNotEmpty;
           final isArt = category == 'art';
           final isFurniture = category == 'furniture';
+          final isActive = bid['is_active'] && DateTime.now().isBefore(DateTime.parse(bid['end_time']));
 
           return GestureDetector(
             onTap: () {
@@ -303,7 +389,7 @@ class _HomescreenState extends State<Homescreen> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => Art_Furniture_Detials_Screen(
+                    builder: (context) => ArtFurnitureDetailsScreen(
                       imageUrl: hasImages ? bid['images'][0] : '',
                       title: bid['bid_name'] ?? 'Untitled Bid',
                       isArt: isArt,
@@ -315,10 +401,10 @@ class _HomescreenState extends State<Homescreen> {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => CarBidDetails(
+                    builder: (context) => CarBidDetailsScreen(
                       imageUrl: hasImages ? bid['images'][0] : '',
                       title: bid['bid_name'] ?? 'Untitled Bid',
-                      carData: bid,
+                      itemData: bid,
                     ),
                   ),
                 );
@@ -328,36 +414,53 @@ class _HomescreenState extends State<Homescreen> {
               width: 150,
               margin: const EdgeInsets.symmetric(horizontal: 8),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: hasImages
-                          ? Image.network(
-                        bid['images'][0],
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) =>
-                            Container(
+                    child: Stack(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: hasImages
+                              ? Image.network(
+                            bid['images'][0],
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => Container(
                               color: Colors.grey[800],
                               child: const Icon(Icons.broken_image, color: Colors.white),
                             ),
-                      )
-                          : Container(
-                        color: Colors.grey[800],
-                        child: const Icon(Icons.image_not_supported, color: Colors.white),
-                      ),
+                          )
+                              : Container(
+                            color: Colors.grey[800],
+                            child: const Icon(Icons.image_not_supported, color: Colors.white),
+                          ),
+                        ),
+                        if (!isActive)
+                          Positioned(
+                            top: 5,
+                            right: 5,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              color: Colors.red,
+                              child: const Text(
+                                'Ended',
+                                style: TextStyle(color: Colors.white, fontSize: 10),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 8),
                   Text(
                     bid['bid_name'] ?? 'Untitled',
-                    style: const TextStyle(color: Colors.white),
+                    style: const TextStyle(color: Colors.white, fontSize: 14),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   Text(
-                    '${bid['price'] ?? 'N/A'} PKR',
-                    style: const TextStyle(color: Colors.yellow, fontSize: 14),
+                    '${bid['price'].toStringAsFixed(2)} PKR',
+                    style: const TextStyle(color: Color(0xFFECD801), fontSize: 14),
                   ),
                 ],
               ),

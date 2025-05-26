@@ -66,7 +66,7 @@ class _AllCarsScreenState extends State<AllCarsScreen> {
       },
       child: Scaffold(
         backgroundColor: Colors.black,
-        appBar: const Appbar(),
+        appBar:  Appbar(),
         bottomNavigationBar: const Navigationbar(),
         endDrawer: CustomDrawer(),
         body: _loading
@@ -101,10 +101,9 @@ class _AllCarsScreenState extends State<AllCarsScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => CarBidDetails(
+                          builder: (context) => CarBidDetailsScreen(
                             imageUrl: imageUrl,
                             title: title.isNotEmpty ? title : 'No Title',
-                            carData: car,
                           ),
                         ),
                       );

@@ -1,7 +1,7 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-class BidsService {
+class BidsService extends ChangeNotifier {
   static final BidsService _instance = BidsService._internal();
   final SupabaseClient supabase = Supabase.instance.client;
   late final RealtimeChannel _bidsChannel;
@@ -24,20 +24,29 @@ class BidsService {
       ..onPostgresChanges(
         event: PostgresChangeEvent.all,
         schema: 'public',
-        table: 'car',
-        callback: (payload) => notifyListeners(),
+        table: 'cars',
+        callback: (payload) {
+          if (kDebugMode) debugPrint('Cars table updated: $payload');
+          notifyListeners();
+        },
       )
       ..onPostgresChanges(
         event: PostgresChangeEvent.all,
         schema: 'public',
         table: 'furniture',
-        callback: (payload) => notifyListeners(),
+        callback: (payload) {
+          if (kDebugMode) debugPrint('Furniture table updated: $payload');
+          notifyListeners();
+        },
       )
       ..onPostgresChanges(
         event: PostgresChangeEvent.all,
         schema: 'public',
         table: 'art',
-        callback: (payload) => notifyListeners(),
+        callback: (payload) {
+          if (kDebugMode) debugPrint('Art table updated: $payload');
+          notifyListeners();
+        },
       );
 
     _bidsChannel.subscribe();
@@ -60,10 +69,12 @@ class BidsService {
   }
 
   // Notify all listeners
+  @override
   void notifyListeners() {
     for (var callback in _listeners) {
       callback();
     }
+    super.notifyListeners();
   }
 
   // Dispose method to clean up resources
@@ -72,27 +83,31 @@ class BidsService {
       _bidsChannel.unsubscribe();
       _isSubscribed = false;
     }
+    super.dispose();
   }
 
   // Fetch all bids (cars, furniture, art)
-  Future<Map<String, dynamic>> fetchAllBids() async {
+  Future<Map<String, List<Map<String, dynamic>>>> fetchAllBids() async {
     try {
-      // Fetch data from each category table
-      final carResponse = await supabase.from('car').select('*');
-      final furnitureResponse = await supabase.from('furniture').select('*');
-      final artResponse = await supabase.from('art').select('*');
+      final carResponse = await supabase.from('cars').select();
+      final furnitureResponse = await supabase.from('furniture').select();
+      final artResponse = await supabase.from('art').select();
 
-      // Process responses with proper type casting
-      final carBids = (carResponse as List<dynamic>).map<Map<String, dynamic>>((b) =>
-      {...b as Map<String, dynamic>, 'category': 'Car'}).toList();
+      final carBids = (carResponse as List<dynamic>)
+          .cast<Map<String, dynamic>>()
+          .map((b) => {...b, 'item_type': 'cars'})
+          .toList();
 
-      final furnitureBids = (furnitureResponse as List<dynamic>).map<Map<String, dynamic>>((b) =>
-      {...b as Map<String, dynamic>, 'category': 'Furniture'}).toList();
+      final furnitureBids = (furnitureResponse as List<dynamic>)
+          .cast<Map<String, dynamic>>()
+          .map((b) => {...b, 'item_type': 'furniture'})
+          .toList();
 
-      final artBids = (artResponse as List<dynamic>).map<Map<String, dynamic>>((b) =>
-      {...b as Map<String, dynamic>, 'category': 'Art'}).toList();
+      final artBids = (artResponse as List<dynamic>)
+          .cast<Map<String, dynamic>>()
+          .map((b) => {...b, 'item_type': 'art'})
+          .toList();
 
-      // Combine all bids for carousel (active bids first)
       final allBids = [...carBids, ...furnitureBids, ...artBids]
         ..sort((a, b) {
           final aActive = a['is_active'] == true;
@@ -102,14 +117,18 @@ class BidsService {
           return 0;
         });
 
+      if (kDebugMode) {
+        debugPrint('Fetched ${carBids.length} car bids, ${furnitureBids.length} furniture bids, ${artBids.length} art bids');
+      }
+
       return {
         'allBids': allBids,
         'carBids': carBids,
         'furnitureBids': furnitureBids,
         'artBids': artBids,
       };
-    } catch (e) {
-      debugPrint("Error fetching bids: $e");
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('Error fetching bids: $e\n$stack');
       rethrow;
     }
   }
@@ -117,32 +136,34 @@ class BidsService {
   // Fetch car bids only
   Future<List<Map<String, dynamic>>> fetchCarBids() async {
     try {
-      // Simplify the query to match how we retrieve cars in fetchAllBids
-      final response = await supabase.from('car').select('*');
-
-      // Debug information
-      debugPrint("Car response length: ${(response as List).length}");
-      if (response.isNotEmpty) {
-        debugPrint("First car data: ${response[0]}");
+      final response = await supabase.from('cars').select();
+      final carBids = (response as List<dynamic>)
+          .cast<Map<String, dynamic>>()
+          .map((b) => {...b, 'item_type': 'cars'})
+          .toList();
+      if (kDebugMode) {
+        debugPrint('Car bids fetched: ${carBids.length}');
+        if (carBids.isNotEmpty) debugPrint('First car: ${carBids[0]}');
       }
-
-      // Process cars same as in fetchAllBids
-      final carBids = response.map<Map<String, dynamic>>((b) =>
-      {...b, 'category': 'Car'}).toList();
-
       return carBids;
-    } catch (e) {
-      debugPrint("Error fetching cars: $e");
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('Error fetching car bids: $e\n$stack');
       rethrow;
     }
   }
+
   // Fetch furniture bids only
   Future<List<Map<String, dynamic>>> fetchFurnitureBids() async {
     try {
-      final response = await supabase.from('furniture').select('*');
-      return List<Map<String, dynamic>>.from(response);
-    } catch (e) {
-      debugPrint("Error fetching furniture: $e");
+      final response = await supabase.from('furniture').select();
+      final furnitureBids = (response as List<dynamic>)
+          .cast<Map<String, dynamic>>()
+          .map((b) => {...b, 'item_type': 'furniture'})
+          .toList();
+      if (kDebugMode) debugPrint('Furniture bids fetched: ${furnitureBids.length}');
+      return furnitureBids;
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('Error fetching furniture bids: $e\n$stack');
       rethrow;
     }
   }
@@ -150,10 +171,15 @@ class BidsService {
   // Fetch art bids only
   Future<List<Map<String, dynamic>>> fetchArtBids() async {
     try {
-      final response = await supabase.from('art').select('*');
-      return List<Map<String, dynamic>>.from(response);
-    } catch (e) {
-      debugPrint("Error fetching art: $e");
+      final response = await supabase.from('art').select();
+      final artBids = (response as List<dynamic>)
+          .cast<Map<String, dynamic>>()
+          .map((b) => {...b, 'item_type': 'art'})
+          .toList();
+      if (kDebugMode) debugPrint('Art bids fetched: ${artBids.length}');
+      return artBids;
+    } catch (e, stack) {
+      if (kDebugMode) debugPrint('Error fetching art bids: $e\n$stack');
       rethrow;
     }
   }
@@ -161,7 +187,6 @@ class BidsService {
   // Helper methods
   String getFirstImageUrl(dynamic item) {
     if (item['images'] == null) return '';
-
     if (item['images'] is List) {
       return item['images'].isNotEmpty ? item['images'][0] : '';
     } else if (item['images'] is String) {
@@ -170,17 +195,20 @@ class BidsService {
     return '';
   }
 
-  String formatTitle(Map<String, dynamic> car) {
+  String formatTitle(Map<String, dynamic> cars) {
     return [
-      car['make'],
-      car['model'],
-      car['year']
+      cars['make'],
+      cars['model'],
+      cars['year']
     ].where((part) => part != null).join(' ');
   }
 
   String formatDateTime(dynamic dateTime) {
     if (dateTime == null) return 'N/A';
     final dt = DateTime.parse(dateTime.toString());
-    return '${dt.day}/${dt.month}/${dt.year} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}';
+    final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final amPm = dt.hour >= 12 ? 'pm' : 'am';
+    final minute = dt.minute.toString().padLeft(2, '0');
+    return '${dt.month}/${dt.day}/${dt.year} - $hour:$minute $amPm';
   }
 }

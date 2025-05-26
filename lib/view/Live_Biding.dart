@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../services/auction_services.dart';
 import '../services/notification_services.dart';
 import '../utils/customlisttile.dart';
 import '../utils/customtextfield.dart';
+import '../view/bidwinscreen.dart';
 
 class LiveBidscreen extends StatefulWidget {
   final String itemId;
@@ -24,11 +26,9 @@ class LiveBidscreen extends StatefulWidget {
 
 class _LiveBidscreenState extends State<LiveBidscreen> {
   final TextEditingController _bidController = TextEditingController();
-  final _supabase = Supabase.instance.client;
-  final NotificationService _notificationService = NotificationService(
-    supabase: Supabase.instance.client,
-  );
-
+  final SupabaseClient _supabase = Supabase.instance.client;
+  late final AuctionService _auctionService;
+  late final NotificationService _notificationService;
   bool _isPlacingBid = false;
   bool _auctionEnded = false;
   bool _auctionNotStarted = false;
@@ -36,13 +36,16 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
   List<Map<String, dynamic>> _bids = [];
   DateTime? _endTime;
   DateTime? _startTime;
+  Map<String, dynamic>? _winner;
 
   @override
   void initState() {
     super.initState();
+    _auctionService = AuctionService(supabase: _supabase);
+    _notificationService = NotificationService(supabase: _supabase);
+    _initializeNotifications();
     _fetchAuctionDetails();
     _setupRealtimeUpdates();
-    _initializeNotifications();
   }
 
   Future<void> _initializeNotifications() async {
@@ -69,8 +72,12 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
       });
 
       await _fetchBids();
+      if (_auctionEnded) {
+        await _fetchWinner();
+      }
     } catch (e) {
       _showErrorSnackbar('Error fetching auction details: ${e.toString()}');
+      debugPrint('Error fetching auction details: ${e.toString()}');
     }
   }
 
@@ -78,71 +85,98 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
     try {
       final bidsResponse = await _supabase
           .from('bids')
-          .select('id, user_id, amount')
+          .select('id, user_id, amount, created_at, users!user_id(*)')
           .eq('item_id', widget.itemId)
+          .eq('item_type', widget.itemType)
           .order('amount', ascending: false)
           .limit(10);
 
       final List<Map<String, dynamic>> bids = List<Map<String, dynamic>>.from(bidsResponse);
-      final List<Map<String, dynamic>> updatedBids = [];
-
-      for (final bid in bids) {
-        final userId = bid['user_id'];
-        String userName = 'Anonymous';
-
-        if (userId != null) {
-          try {
-            final userResponse = await _supabase
-                .from('users')
-                .select('name')
-                .eq('id', userId)
-                .single();
-            userName = userResponse['name'] ?? 'Anonymous';
-          } catch (e) {
-            debugPrint("Error fetching user name: $e");
-          }
-        }
-
-        updatedBids.add({
+      final updatedBids = bids.map((bid) {
+        final userData = bid['users'] ?? {};
+        final rawData = userData['raw_user_meta_data'] as Map<String, dynamic>? ?? {};
+        final userName = rawData['name'] ??
+            userData['email']?.split('@').first ??
+            'Anonymous';
+        return {
           ...bid,
           'user_name': userName,
-        });
-      }
+          'avatar_url': rawData['avatar_url']
+        };
+      }).toList();
 
       setState(() => _bids = updatedBids);
     } catch (e) {
       _showErrorSnackbar('Error fetching bids: ${e.toString()}');
+      debugPrint('Error fetching bids: ${e.toString()}');
+    }
+  }
+
+  Future<void> _fetchWinner() async {
+    try {
+      final winner = await _auctionService.checkAndDeclareWinner(
+        itemId: widget.itemId,
+        itemType: widget.itemType,
+        notificationService: _notificationService,
+      );
+      //
+      // if (winner != null) {
+      //   setState(() => _winner = winner);
+      //   Navigator.pushReplacement(
+      //     context,
+      //     MaterialPageRoute(
+      //       builder: (context) => BidWinScreen(
+      //         imageUrl: widget.imageUrl,
+      //         itemTitle: widget.itemTitle,
+      //         winningAmount: winner['winning_amount'].toString(),
+      //         isBidFinished: true,
+      //         winnerName: winner['user']?['name'] ?? 'Anonymous',
+      //         winnerAvatar: winner['user']?['avatar_url'],
+      //       ),
+      //     ),
+      //   );
+      // }
+    } catch (e) {
+      _showErrorSnackbar('Error fetching winner: ${e.toString()}');
+      debugPrint('Error fetching winner: ${e.toString()}');
     }
   }
 
   void _setupRealtimeUpdates() {
-    _supabase
-        .from('bids')
-        .stream(primaryKey: ['id'])
-        .eq('item_id', widget.itemId)
-        .order('amount', ascending: false)
-        .limit(10)
-        .listen((updatedBids) {
-      if (updatedBids.isNotEmpty) {
-        setState(() {
-          _bids = updatedBids;
-          _currentBid = (updatedBids.first['amount'] as num).toDouble();
-        });
-      }
+    _auctionService.getBidsForAuction(widget.itemId, widget.itemType).listen((bids) {
+      final updatedBids = bids.map((bid) {
+        final userData = bid['users'] ?? {};
+        final rawData = userData['raw_user_meta_data'] as Map<String, dynamic>? ?? {};
+        final userName = rawData['name'] ??
+            userData['email']?.split('@').first ??
+            'Anonymous';
+        return {
+          ...bid,
+          'user_name': userName,
+          'avatar_url': rawData['avatar_url']
+        };
+      }).toList();
+
+      setState(() {
+        _bids = updatedBids;
+        if (_bids.isNotEmpty) {
+          _currentBid = (_bids.first['amount'] as num).toDouble();
+        }
+      });
     });
 
-    _supabase
-        .from(widget.itemType)
-        .stream(primaryKey: ['id'])
-        .eq('id', widget.itemId)
-        .listen((updatedAuctions) {
-      if (updatedAuctions.isNotEmpty) {
-        final auction = updatedAuctions.first;
+    _auctionService.getAuctionById(widget.itemId, widget.itemType).listen((auction) {
+      if (auction != null) {
         setState(() {
           _auctionEnded = !auction['is_active'];
+          _endTime = DateTime.tryParse(auction['end_time'] ?? '');
+          _startTime = DateTime.tryParse(auction['start_time'] ?? '');
+          _auctionNotStarted = _startTime != null && DateTime.now().isBefore(_startTime!);
+          _currentBid = (auction['price'] as num).toDouble();
         });
         if (_auctionEnded) {
           _showAuctionEndedDialog();
+          _fetchWinner();
         }
       }
     });
@@ -157,18 +191,11 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
 
     setState(() => _isPlacingBid = true);
     try {
-      await _supabase.from('bids').insert({
-        'item_id': widget.itemId,
-        'item_type': widget.itemType,
-        'amount': bidAmount,
-        'user_id': _supabase.auth.currentUser?.id,
-      });
-
-      await _supabase
-          .from(widget.itemType)
-          .update({'price': bidAmount})
-          .eq('id', widget.itemId);
-
+      await _auctionService.placeBid(
+        itemId: widget.itemId,
+        itemType: widget.itemType,
+        amount: bidAmount,
+      );
       _bidController.clear();
       _showSuccessSnackbar('Bid placed successfully!');
     } catch (e) {
@@ -289,16 +316,18 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
                       child: CustomListTile(
                         leading: CircleAvatar(
                           backgroundColor: Colors.grey[800],
-                          child: Text(
-                            username.isNotEmpty
-                                ? username[0].toUpperCase()
-                                : '?',
+                          backgroundImage: bid['avatar_url'] != null
+                              ? NetworkImage(bid['avatar_url'])
+                              : null,
+                          child: bid['avatar_url'] == null
+                              ? Text(
+                            username.isNotEmpty ? username[0].toUpperCase() : '?',
                             style: const TextStyle(color: Colors.white),
-                          ),
+                          )
+                              : null,
                         ),
                         titleText: username,
-                        trailingText:
-                        "${(bid['amount'] as num).toStringAsFixed(0)} PKR",
+                        trailingText: "${(bid['amount'] as num).toStringAsFixed(0)} PKR",
                       ),
                     );
                   }).toList(),
@@ -320,17 +349,15 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
                     IconButton(
                       icon: const Icon(Icons.add, color: Colors.yellow),
                       onPressed: () {
-                        _bidController.text =
-                            (_currentBid + 1000).toStringAsFixed(0);
+                        _bidController.text = (_currentBid + 1000).toStringAsFixed(0);
                       },
                     ),
                   ],
                 ),
                 const SizedBox(height: 20),
                 ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.yellow),
-                  onPressed: _isPlacingBid ? null : _placeBid,
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.yellow),
+                  onPressed: _isPlacingBid || _auctionEnded || _auctionNotStarted ? null : _placeBid,
                   child: _isPlacingBid
                       ? const CircularProgressIndicator(color: Colors.black)
                       : const Text("Place Bid"),
@@ -348,6 +375,7 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
   void dispose() {
     _bidController.dispose();
     _notificationService.dispose();
+    _auctionService.dispose();
     super.dispose();
   }
 }

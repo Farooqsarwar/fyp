@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 class Appbar extends StatelessWidget implements PreferredSizeWidget {
-  const Appbar({super.key});
 
-  @override
   Widget build(BuildContext context) {
     return AppBar(
       automaticallyImplyLeading: false, // Disable default leading widget

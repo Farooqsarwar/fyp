@@ -64,7 +64,7 @@ class _AllArtScreenState extends State<AllArtScreen> {
       },
       child: Scaffold(
         backgroundColor: Colors.black,
-        appBar: const Appbar(),
+        appBar:  Appbar(),
         bottomNavigationBar: const Navigationbar(),
         endDrawer: const CustomDrawer(),
         body: _loading
@@ -89,7 +89,7 @@ class _AllArtScreenState extends State<AllArtScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => Art_Furniture_Detials_Screen(
+                      builder: (context) => ArtFurnitureDetailsScreen(
                         imageUrl: imageUrl,
                         title: art['title'] ?? 'No Title',
                         isArt: true,  // Changed to true for art items

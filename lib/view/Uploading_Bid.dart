@@ -4,55 +4,55 @@ import 'package:fyp/view/Homescreen.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
-import 'Navigationbar.dart';
 
-class UploadingBid extends StatefulWidget {
-  const UploadingBid({super.key});
+class UploadingBidScreen extends StatefulWidget {
+  const UploadingBidScreen({super.key});
 
   @override
-  State<UploadingBid> createState() => _UploadingBidState();
+  State<UploadingBidScreen> createState() => _UploadingBidScreenState();
 }
 
-class _UploadingBidState extends State<UploadingBid> {
+class _UploadingBidScreenState extends State<UploadingBidScreen> {
+  final supabase = Supabase.instance.client;
+  final _formKey = GlobalKey<FormState>();
   final ImagePicker picker = ImagePicker();
-  final SupabaseClient supabase = Supabase.instance.client;
-
-  // State variables
-  final Map<String, List<XFile>> categoryImages = {
-    "Car": [],
-    "Furniture": [],
-    "Art": [],
-  };
-  String selectedCategory = "Car";
-  String selectedTransmission = "Automatic";
-  XFile? fullScreenImage;
-  DateTime? startTime;
-  DateTime? endTime;
-  bool isUploading = false;
-  double uploadProgress = 0.0;
 
   // Controllers
-  final TextEditingController conditionController = TextEditingController();
-  final TextEditingController materialController = TextEditingController();
-  final TextEditingController priceController = TextEditingController();
-  final TextEditingController descriptionController = TextEditingController();
-  final TextEditingController makeController = TextEditingController();
-  final TextEditingController modelController = TextEditingController();
-  final TextEditingController yearController = TextEditingController();
-  final TextEditingController fuelController = TextEditingController();
-  final TextEditingController regCityController = TextEditingController();
-  final TextEditingController distanceController = TextEditingController();
-  final TextEditingController horsePowerController = TextEditingController();
-  final TextEditingController bidNameController = TextEditingController();
-  final TextEditingController startTimeController = TextEditingController();
-  final TextEditingController endTimeController = TextEditingController();
+  final bidNameController = TextEditingController();
+  final descriptionController = TextEditingController();
+  final priceController = TextEditingController();
+  final makeController = TextEditingController();
+  final modelController = TextEditingController();
+  final yearController = TextEditingController();
+  final fuelController = TextEditingController();
+  final regCityController = TextEditingController();
+  final distanceController = TextEditingController();
+  final horsePowerController = TextEditingController();
+  final artistController = TextEditingController();
+  final mediumController = TextEditingController();
+  final dimensionsController = TextEditingController();
+  final conditionController = TextEditingController();
+  final materialController = TextEditingController();
+
+  // State variables
+  String selectedCategory = "Car";
+  String selectedTransmission = "Automatic";
+  DateTime? startTime;
+  DateTime? endTime;
+  final Map<String, List<XFile>> categoryImages = {
+    'Car': [],
+    'Art': [],
+    'Furniture': [],
+  };
+  XFile? fullScreenImage;
+  double uploadProgress = 0.0;
+  bool isUploading = false;
 
   @override
   void dispose() {
-    conditionController.dispose();
-    materialController.dispose();
-    priceController.dispose();
+    bidNameController.dispose();
     descriptionController.dispose();
+    priceController.dispose();
     makeController.dispose();
     modelController.dispose();
     yearController.dispose();
@@ -60,9 +60,11 @@ class _UploadingBidState extends State<UploadingBid> {
     regCityController.dispose();
     distanceController.dispose();
     horsePowerController.dispose();
-    bidNameController.dispose();
-    startTimeController.dispose();
-    endTimeController.dispose();
+    artistController.dispose();
+    mediumController.dispose();
+    dimensionsController.dispose();
+    conditionController.dispose();
+    materialController.dispose();
     super.dispose();
   }
 
@@ -117,14 +119,11 @@ class _UploadingBidState extends State<UploadingBid> {
           setState(() {
             if (isStartTime) {
               startTime = dateTime;
-              startTimeController.text = DateFormat('yyyy-MM-dd HH:mm').format(dateTime);
               if (endTime != null && endTime!.isBefore(dateTime)) {
                 endTime = dateTime.add(const Duration(hours: 24));
-                endTimeController.text = DateFormat('yyyy-MM-dd HH:mm').format(endTime!);
               }
             } else {
               endTime = dateTime;
-              endTimeController.text = DateFormat('yyyy-MM-dd HH:mm').format(dateTime);
             }
           });
         }
@@ -139,7 +138,6 @@ class _UploadingBidState extends State<UploadingBid> {
     }
   }
 
-  // Progress overlay widget
   Widget _buildProgressOverlay() {
     return isUploading
         ? Container(
@@ -148,8 +146,9 @@ class _UploadingBidState extends State<UploadingBid> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const CircularProgressIndicator(
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.green),
+            CircularProgressIndicator(
+              value: uploadProgress,
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.green),
             ),
             const SizedBox(height: 20),
             Text(
@@ -164,8 +163,8 @@ class _UploadingBidState extends State<UploadingBid> {
   }
 
   Future<void> uploadBid() async {
-    if (isUploading) return;
-    // Validate inputs first
+    if (isUploading || !_formKey.currentState!.validate()) return;
+
     try {
       final user = supabase.auth.currentUser;
       if (user == null) throw Exception('User not logged in');
@@ -173,22 +172,26 @@ class _UploadingBidState extends State<UploadingBid> {
       if (endTime!.isBefore(startTime!)) throw Exception('End time must be after start time');
       if (bidNameController.text.isEmpty) throw Exception('Please enter a bid name');
       if (categoryImages[selectedCategory]!.isEmpty) throw Exception('Please add at least one image');
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString())),
-        );
+      if (priceController.text.isEmpty) throw Exception('Please enter a price');
+      if (descriptionController.text.isEmpty) throw Exception('Please enter a description');
+
+      if (selectedCategory == 'Car') {
+        if (makeController.text.isEmpty) throw Exception('Please enter the car make');
+        if (modelController.text.isEmpty) throw Exception('Please enter the car model');
+        if (yearController.text.isEmpty) throw Exception('Please enter the car year');
+        if (fuelController.text.isEmpty) throw Exception('Please enter the fuel type');
+        if (regCityController.text.isEmpty) throw Exception('Please enter the registration city');
+        if (distanceController.text.isEmpty) throw Exception('Please enter the distance');
+        if (horsePowerController.text.isEmpty) throw Exception('Please enter the horse power');
+      } else {
+        if (conditionController.text.isEmpty) throw Exception('Please enter the condition');
+        if (materialController.text.isEmpty) throw Exception('Please enter the material');
       }
-      return;
-    }
 
-    setState(() {
-      isUploading = true;
-      uploadProgress = 0.0;
-    });
-
-    try {
-      final user = supabase.auth.currentUser;
+      setState(() {
+        isUploading = true;
+        uploadProgress = 0.0;
+      });
 
       // Upload images
       List<String> uploadedImageUrls = [];
@@ -217,14 +220,30 @@ class _UploadingBidState extends State<UploadingBid> {
         }
       }
 
+      // Map selectedCategory to correct table name
+      String tableName;
+      switch (selectedCategory) {
+        case 'Car':
+          tableName = 'cars';
+          break;
+        case 'Art':
+          tableName = 'art';
+          break;
+        case 'Furniture':
+          tableName = 'furniture';
+          break;
+        default:
+          throw Exception('Invalid category: $selectedCategory');
+      }
+
       // Prepare bid data
       final bidData = {
-        'user_id': user!.id,
+        'user_id': user.id,
         'bid_name': bidNameController.text,
         'start_time': startTime!.toIso8601String(),
         'end_time': endTime!.toIso8601String(),
         'is_active': true,
-        'price': priceController.text,
+        'price': double.parse(priceController.text),
         'description': descriptionController.text,
         'images': uploadedImageUrls,
         if (selectedCategory == "Car") ...{
@@ -236,52 +255,62 @@ class _UploadingBidState extends State<UploadingBid> {
           'distance': distanceController.text,
           'horse_power': horsePowerController.text,
           'transmission': selectedTransmission,
-        } else ...{
+        },
+        if (selectedCategory == "Art") ...{
+          'artist': artistController.text,
+          'medium': mediumController.text,
+          'dimensions': dimensionsController.text,
           'condition': conditionController.text,
           'material': materialController.text,
-        }
+        },
+        if (selectedCategory == "Furniture") ...{
+          'condition': conditionController.text,
+          'material': materialController.text,
+        },
       };
 
       // Insert into database
-      final response = await supabase
-          .from(selectedCategory.toLowerCase())
-          .insert(bidData)
-          .select()
-          .single();
+      try {
+        final response = await supabase
+            .from(tableName)
+            .insert(bidData)
+            .select()
+            .single();
 
-      if (response == null) throw Exception('No response from server');
+        if (response == null) throw Exception('No response from server');
 
-      // Update final progress before completion
-      if (mounted) {
-        setState(() {
-          uploadProgress = 1.0;
-        });
+        // Update final progress before completion
+        if (mounted) {
+          setState(() {
+            uploadProgress = 1.0;
+          });
+        }
+
+        // Show success and navigate back
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text("Success"),
+              content: const Text("Bid created successfully!"),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.push(context,
+                        MaterialPageRoute(builder: (context)=>Homescreen()));
+                    setState(() => isUploading = false);
+                    Navigator.pop(context);
+                  },
+                  child: const Text("OK"),
+                ),
+              ],
+            ),
+          );
+        }
+      } catch (e) {
+        debugPrint("Error inserting into $tableName: $e");
+        throw Exception("Failed to insert bid into $tableName: ${e.toString()}");
       }
-
-      // Show success and navigate back
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text("Success"),
-            content: const Text("Bid created successfully!"),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop(); // Close the dialog
-                  setState(() => isUploading = false);
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(builder: (context) => Homescreen()),
-                  );
-                },
-                child: const Text("OK"),
-              ),
-            ],
-          ),
-        );
-      }
-
     } catch (e) {
       debugPrint("Error creating bid: $e");
       if (mounted) {
@@ -293,7 +322,11 @@ class _UploadingBidState extends State<UploadingBid> {
     }
   }
 
-  Widget buildTimeInputField(String label, TextEditingController controller, VoidCallback onTap) {
+  Widget buildTimeInputField(String label, VoidCallback onTap) {
+    final controller = label.contains("Start")
+        ? TextEditingController(text: startTime != null ? DateFormat('yyyy-MM-dd HH:mm').format(startTime!) : "")
+        : TextEditingController(text: endTime != null ? DateFormat('yyyy-MM-dd HH:mm').format(endTime!) : "");
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: SizedBox(
@@ -318,12 +351,13 @@ class _UploadingBidState extends State<UploadingBid> {
   Widget buildInputField(String label, TextEditingController controller, {
     bool isMultiline = false,
     TextInputType keyboardType = TextInputType.text,
+    String? Function(String?)? validator,
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: SizedBox(
         width: 300,
-        child: TextField(
+        child: TextFormField(
           controller: controller,
           maxLines: isMultiline ? null : 1,
           keyboardType: keyboardType,
@@ -335,6 +369,7 @@ class _UploadingBidState extends State<UploadingBid> {
             filled: true,
             fillColor: const Color.fromRGBO(27, 27, 27, 1),
           ),
+          validator: validator,
         ),
       ),
     );
@@ -345,7 +380,7 @@ class _UploadingBidState extends State<UploadingBid> {
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Wrap(
         spacing: 8,
-        children: ["Car", "Furniture", "Art"].map((category) {
+        children: ["Car", "Art", "Furniture"].map((category) {
           return ChoiceChip(
             label: Text(category, style: const TextStyle(color: Colors.white)),
             selected: selectedCategory == category,
@@ -453,31 +488,64 @@ class _UploadingBidState extends State<UploadingBid> {
 
   List<Widget> buildCarInputs() {
     return [
-      buildInputField("Bid Name", bidNameController),
-      buildInputField("Make", makeController),
-      buildInputField("Model", modelController),
-      buildInputField("Year", yearController, keyboardType: TextInputType.number),
-      buildInputField("Fuel", fuelController),
-      buildInputField("Registration City", regCityController),
-      buildInputField("Distance", distanceController, keyboardType: TextInputType.number),
-      buildInputField("Horse Power", horsePowerController, keyboardType: TextInputType.number),
+      buildInputField("Bid Name", bidNameController, validator: (value) => value!.isEmpty ? 'Please enter a bid name' : null),
+      buildInputField("Make", makeController, validator: (value) => value!.isEmpty ? 'Please enter the make' : null),
+      buildInputField("Model", modelController, validator: (value) => value!.isEmpty ? 'Please enter the model' : null),
+      buildInputField("Year", yearController, keyboardType: TextInputType.number, validator: (value) => value!.isEmpty ? 'Please enter the year' : null),
+      buildInputField("Fuel", fuelController, validator: (value) => value!.isEmpty ? 'Please enter the fuel type' : null),
+      buildInputField("Registration City", regCityController, validator: (value) => value!.isEmpty ? 'Please enter the registration city' : null),
+      buildInputField("Distance (km)", distanceController, keyboardType: TextInputType.number, validator: (value) => value!.isEmpty ? 'Please enter the distance' : null),
+      buildInputField("Horse Power", horsePowerController, keyboardType: TextInputType.number, validator: (value) => value!.isEmpty ? 'Please enter the horse power' : null),
       buildTransmissionSelection(),
-      buildInputField("Price", priceController, keyboardType: TextInputType.number),
-      buildInputField("Description", descriptionController, isMultiline: true),
-      buildTimeInputField("Start Time", startTimeController, () => _pickDateTime(context, true)),
-      buildTimeInputField("End Time", endTimeController, () => _pickDateTime(context, false)),
+      buildInputField("Price (PKR)", priceController, keyboardType: TextInputType.number, validator: (value) {
+        if (value!.isEmpty) return 'Please enter a price';
+        if (double.tryParse(value) == null || double.parse(value) <= 0) {
+          return 'Please enter a valid price';
+        }
+        return null;
+      }),
+      buildInputField("Description", descriptionController, isMultiline: true, validator: (value) => value!.isEmpty ? 'Please enter a description' : null),
+      buildTimeInputField("Start Time", () => _pickDateTime(context, true)),
+      buildTimeInputField("End Time", () => _pickDateTime(context, false)),
+    ];
+  }
+
+  List<Widget> buildArtInputs() {
+    return [
+      buildInputField("Bid Name", bidNameController, validator: (value) => value!.isEmpty ? 'Please enter a bid name' : null),
+      buildInputField("Artist", artistController),
+      buildInputField("Medium", mediumController),
+      buildInputField("Dimensions", dimensionsController),
+      buildInputField("Condition", conditionController, validator: (value) => value!.isEmpty ? 'Please enter the condition' : null),
+      buildInputField("Material", materialController, validator: (value) => value!.isEmpty ? 'Please enter the material' : null),
+      buildInputField("Price (PKR)", priceController, keyboardType: TextInputType.number, validator: (value) {
+        if (value!.isEmpty) return 'Please enter a price';
+        if (double.tryParse(value) == null || double.parse(value) <= 0) {
+          return 'Please enter a valid price';
+        }
+        return null;
+      }),
+      buildInputField("Description", descriptionController, isMultiline: true, validator: (value) => value!.isEmpty ? 'Please enter a description' : null),
+      buildTimeInputField("Start Time", () => _pickDateTime(context, true)),
+      buildTimeInputField("End Time", () => _pickDateTime(context, false)),
     ];
   }
 
   List<Widget> buildFurnitureInputs() {
     return [
-      buildInputField("Bid Name", bidNameController),
-      buildInputField("Condition", conditionController),
-      buildInputField("Material", materialController),
-      buildInputField("Price", priceController, keyboardType: TextInputType.number),
-      buildInputField("Description", descriptionController, isMultiline: true),
-      buildTimeInputField("Start Time", startTimeController, () => _pickDateTime(context, true)),
-      buildTimeInputField("End Time", endTimeController, () => _pickDateTime(context, false)),
+      buildInputField("Bid Name", bidNameController, validator: (value) => value!.isEmpty ? 'Please enter a bid name' : null),
+      buildInputField("Condition", conditionController, validator: (value) => value!.isEmpty ? 'Please enter the condition' : null),
+      buildInputField("Material", materialController, validator: (value) => value!.isEmpty ? 'Please enter the material' : null),
+      buildInputField("Price (PKR)", priceController, keyboardType: TextInputType.number, validator: (value) {
+        if (value!.isEmpty) return 'Please enter a price';
+        if (double.tryParse(value) == null || double.parse(value) <= 0) {
+          return 'Please enter a valid price';
+        }
+        return null;
+      }),
+      buildInputField("Description", descriptionController, isMultiline: true, validator: (value) => value!.isEmpty ? 'Please enter a description' : null),
+      buildTimeInputField("Start Time", () => _pickDateTime(context, true)),
+      buildTimeInputField("End Time", () => _pickDateTime(context, false)),
     ];
   }
 
@@ -490,39 +558,43 @@ class _UploadingBidState extends State<UploadingBid> {
           children: [
             SingleChildScrollView(
               padding: const EdgeInsets.all(16),
-              child: Center(
-                child: Column(
-                  children: [
-                    categorySelection(),
-                    const SizedBox(height: 20),
-                    buildImagePreview(),
-                    const SizedBox(height: 20),
-                    if (selectedCategory == "Car") ...buildCarInputs(),
-                    if (selectedCategory != "Car") ...buildFurnitureInputs(),
-                    const SizedBox(height: 20),
-                    ElevatedButton(
-                      onPressed: isUploading ? null : uploadBid,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        disabledBackgroundColor: Colors.grey,
-                        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
-                      ),
-                      child: isUploading
-                          ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              child: Form(
+                key: _formKey,
+                child: Center(
+                  child: Column(
+                    children: [
+                      categorySelection(),
+                      const SizedBox(height: 20),
+                      buildImagePreview(),
+                      const SizedBox(height: 20),
+                      if (selectedCategory == "Car") ...buildCarInputs(),
+                      if (selectedCategory == "Art") ...buildArtInputs(),
+                      if (selectedCategory == "Furniture") ...buildFurnitureInputs(),
+                      const SizedBox(height: 20),
+                      ElevatedButton(
+                        onPressed: isUploading ? null : uploadBid,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          disabledBackgroundColor: Colors.grey,
+                          padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
                         ),
-                      )
-                          : const Text(
-                        "Post Bid",
-                        style: TextStyle(fontSize: 18),
+                        child: isUploading
+                            ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        )
+                            : const Text(
+                          "Post Bid",
+                          style: TextStyle(fontSize: 18),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 40),
-                  ],
+                      const SizedBox(height: 40),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -530,7 +602,6 @@ class _UploadingBidState extends State<UploadingBid> {
             buildFullScreenImage(),
           ],
         ),
-        bottomNavigationBar: const Navigationbar(),
       ),
     );
   }
