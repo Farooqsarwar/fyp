@@ -19,7 +19,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   final TextEditingController passwordController = TextEditingController();
   final TextEditingController retypePasswordController = TextEditingController();
   final supabase = Supabase.instance.client;
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -245,7 +244,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
         password: passwordController.text.trim(),
         data: {'name': nameController.text.trim()},
       );
-
       if (response.user != null) {
         // Check email verification status
         ScaffoldMessenger.of(context).showSnackBar(
@@ -255,7 +253,6 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
             backgroundColor: Colors.green,
           ),
         );
-
         // Insert user into the database
         await supabase.from('users').insert({
           'id': response.user!.id,

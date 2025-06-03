@@ -56,8 +56,7 @@ class AuctionService {
             users!user_id(
               id,
               email,
-              raw_user_meta_data->>'name' as name,
-              raw_user_meta_data->>'avatar_url' as avatar_url
+              name
             )
           ''')
           .eq('item_id', itemId)
@@ -84,7 +83,7 @@ class AuctionService {
         'created_at': response['created_at'],
         'bidder_id': response['user_id'],
         'bidder_name': bidderName,
-        'bidder_avatar': userData['avatar_url'],
+        'bidder_avatar': null, // Set to null since avatar_url doesn't exist
       };
     } catch (e) {
       if (kDebugMode) {
@@ -164,8 +163,7 @@ class AuctionService {
                 users!user_id(
                   id,
                   email,
-                  raw_user_meta_data->>'name' as name,
-                  raw_user_meta_data->>'avatar_url' as avatar_url
+                  name
                 )
               ''')
               .eq('item_id', itemId)
@@ -180,7 +178,7 @@ class AuctionService {
             return {
               ...Map<String, dynamic>.from(bid as Map),
               'bidder_name': bidderName,
-              'bidder_avatar': userData['avatar_url'],
+              'bidder_avatar': null, // Set to null since avatar_url doesn't exist
             };
           }).toList();
           controller.add(formattedBids);
@@ -206,8 +204,7 @@ class AuctionService {
           users!user_id(
             id,
             email,
-            raw_user_meta_data->>'name' as name,
-            raw_user_meta_data->>'avatar_url' as avatar_url
+            name
           )
         ''')
         .eq('item_id', itemId)
@@ -222,7 +219,7 @@ class AuctionService {
         return {
           ...Map<String, dynamic>.from(bid as Map),
           'bidder_name': bidderName,
-          'bidder_avatar': userData['avatar_url'],
+          'bidder_avatar': null, // Set to null since avatar_url doesn't exist
         };
       }).toList();
       controller.add(formattedBids);
@@ -507,7 +504,7 @@ class AuctionService {
         try {
           final data = await supabase
               .from('auction_winners')
-              .select('*, users!user_id(name, avatar_url, email)')
+              .select('*, users!user_id(name, email)')
               .eq('item_id', itemId)
               .eq('item_type', itemType)
               .maybeSingle();
@@ -527,7 +524,7 @@ class AuctionService {
     // Initial fetch
     supabase
         .from('auction_winners')
-        .select('*, users!user_id(name, avatar_url, email)')
+        .select('*, users!user_id(name, email)')
         .eq('item_id', itemId)
         .eq('item_type', itemType)
         .maybeSingle()
@@ -612,7 +609,7 @@ class AuctionService {
       // Check if winner already exists
       final existingWinner = await supabase
           .from('auction_winners')
-          .select('*, users!user_id(name, email, avatar_url)')
+          .select('*, users!user_id(name, email)')
           .eq('item_id', itemId)
           .eq('item_type', itemType)
           .maybeSingle();
@@ -627,7 +624,7 @@ class AuctionService {
       // Fetch the highest bid with user information
       final highestBid = await supabase
           .from('bids')
-          .select('*, users!user_id(name, email, avatar_url)')
+          .select('*, users!user_id(name, email)')
           .eq('item_id', itemId)
           .eq('item_type', itemType)
           .order('amount', ascending: false)
@@ -656,7 +653,6 @@ class AuctionService {
       final winnerName = highestBid['users']?['name'] ??
           highestBid['users']?['email']?.split('@').first ??
           'Anonymous';
-      final avatarUrl = highestBid['users']?['avatar_url'] ?? '';
 
       await notificationService.sendWinnerNotification(
         userId: highestBid['user_id'],
@@ -669,7 +665,7 @@ class AuctionService {
         amount: highestBid['amount'].toString(),
         additionalData: {
           'winner_name': winnerName,
-          'avatar_url': avatarUrl,
+          'avatar_url': null, // Set to null since avatar_url doesn't exist
         },
         winnerName: winnerName,
       );
@@ -703,7 +699,7 @@ class AuctionService {
             winnerData['users']?['email']?.split('@').first ??
             'Anonymous',
         'email': winnerData['users']?['email'] ?? '',
-        'avatar_url': winnerData['users']?['avatar_url'] ?? '',
+        'avatar_url': null, // Set to null since avatar_url doesn't exist
       },
     };
   }
