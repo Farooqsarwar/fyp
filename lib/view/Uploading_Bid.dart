@@ -285,7 +285,6 @@ class _UploadingBidScreenState extends State<UploadingBidScreen> {
             uploadProgress = 1.0;
           });
         }
-
         // Show success and navigate back
         if (mounted) {
           showDialog(
@@ -296,10 +295,12 @@ class _UploadingBidScreenState extends State<UploadingBidScreen> {
               actions: [
                 TextButton(
                   onPressed: () {
-                    Navigator.push(context,
-                        MaterialPageRoute(builder: (context)=>Homescreen()));
+                    Navigator.pop(context); // Close the dialog first
                     setState(() => isUploading = false);
-                    Navigator.pop(context);
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(builder: (context) => Homescreen()),
+                    );
                   },
                   child: const Text("OK"),
                 ),
@@ -307,6 +308,7 @@ class _UploadingBidScreenState extends State<UploadingBidScreen> {
             ),
           );
         }
+
       } catch (e) {
         debugPrint("Error inserting into $tableName: $e");
         throw Exception("Failed to insert bid into $tableName: ${e.toString()}");
