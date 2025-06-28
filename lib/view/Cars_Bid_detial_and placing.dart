@@ -26,11 +26,8 @@ class CarBidDetailsScreen extends StatefulWidget {
 class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
   final supabase = Supabase.instance.client;
   late final AuctionService auctionService;
-  final NotificationService _notificationService = NotificationService(
-    supabase: Supabase.instance.client,
-  );
+  final NotificationService _notificationService = NotificationService();
   final TextEditingController _bidController = TextEditingController();
-
   // State variables
   double _currentBid = 0;
   bool _isPlacingBid = false;
@@ -39,13 +36,9 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
   bool isRegistered = false;
   int _registeredUsersCount = 0;
   String? _highestBidderId;
-  Map<String, dynamic>? _auctionWinner;
-  bool _isCheckingWinner = false;
-  bool _hasCheckedForWinner = false;
 
   // Stream subscriptions
   StreamSubscription<int>? _registrationCountSub;
-  StreamSubscription<Map<String, dynamic>?>? _winnerSub;
   Timer? _auctionTimer;
 
   @override
@@ -54,12 +47,12 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
     auctionService = AuctionService(supabase: supabase);
     auctionService.initialize();
 
-    _currentBid = double.tryParse(widget.itemData?['price']?.toString() ?? '0') ?? 0;
+    _currentBid =
+        double.tryParse(widget.itemData?['price']?.toString() ?? '0') ?? 0;
     _updateAuctionStatus();
     _setupRealTimeUpdates();
     _checkRegistration();
     _setupRegistrationListener();
-    _setupWinnerListener();
     _startAuctionTimer();
   }
 
@@ -72,15 +65,12 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
     final auctionEnded = endTime != null && now.isAfter(endTime) ||
         (widget.itemData?['is_active'] == false);
 
-    if (auctionNotStarted != _auctionNotStarted || auctionEnded != _auctionEnded) {
+    if (auctionNotStarted != _auctionNotStarted ||
+        auctionEnded != _auctionEnded) {
       setState(() {
         _auctionNotStarted = auctionNotStarted;
         _auctionEnded = auctionEnded;
       });
-
-      if (_auctionEnded && !_hasCheckedForWinner) {
-        _checkForWinner();
-      }
     }
   }
 
@@ -119,70 +109,15 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
         final auctionEnded = endTime != null && now.isAfter(endTime) ||
             !(auction['is_active'] ?? false);
 
-        if (auctionNotStarted != _auctionNotStarted || auctionEnded != _auctionEnded) {
+        if (auctionNotStarted != _auctionNotStarted ||
+            auctionEnded != _auctionEnded) {
           setState(() {
             _auctionNotStarted = auctionNotStarted;
             _auctionEnded = auctionEnded;
           });
-
-          if (_auctionEnded && !_hasCheckedForWinner) {
-            _checkForWinner();
-          }
         }
       }
     });
-  }
-
-  void _setupWinnerListener() {
-    if (widget.itemData?['id'] == null) return;
-
-    _winnerSub = auctionService
-        .getWinnerStream(
-      itemId: widget.itemData!['id'],
-      itemType: 'cars',
-    )
-        .listen((winner) {
-      if (mounted && winner != null && winner != _auctionWinner) {
-        setState(() {
-          _auctionWinner = winner;
-          _hasCheckedForWinner = true;
-        });
-      }
-    });
-  }
-
-  Future<void> _checkForWinner() async {
-    if (_isCheckingWinner || widget.itemData?['id'] == null || _hasCheckedForWinner) return;
-
-    setState(() {
-      _isCheckingWinner = true;
-      _hasCheckedForWinner = true;
-    });
-
-    try {
-      final winner = await auctionService.checkAndDeclareWinner(
-        itemId: widget.itemData!['id'],
-        itemType: 'cars',
-        notificationService: _notificationService,
-      );
-
-      if (mounted && winner != null) {
-        setState(() {
-          _auctionWinner = winner;
-        });
-      }
-    } catch (e) {
-      debugPrint('Error checking for winner: $e');
-      if (mounted) {
-        setState(() {
-          _hasCheckedForWinner = false;
-        });
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isCheckingWinner = false);
-      }
-    }
   }
 
   Future<void> _checkRegistration() async {
@@ -237,7 +172,8 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
         if (mounted) {
           setState(() => isRegistered = true);
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Already registered for this auction!')),
+            const SnackBar(
+                content: Text('Already registered for this auction!')),
           );
         }
         return;
@@ -275,6 +211,7 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
       ),
     );
   }
+
   Future<void> _placeBid() async {
     final bidAmount = double.tryParse(_bidController.text);
     if (bidAmount == null || bidAmount <= _currentBid) {
@@ -309,7 +246,6 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
           itemId: widget.itemData?['id'] ?? '',
           itemType: 'cars',
           itemTitle: widget.title,
-          imageUrl: widget.imageUrl,
           amount: bidAmount.toStringAsFixed(0),
         );
       }
@@ -349,6 +285,7 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
   }
 
   @override
+  @override
   Widget build(BuildContext context) {
     if (widget.itemData == null) {
       return Scaffold(
@@ -367,8 +304,16 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
     final fuel = widget.itemData?['fuel'] ?? 'Petrol';
     final horsePower = widget.itemData?['horse_power']?.toString() ?? 'N/A';
     final registrationCity = widget.itemData?['registration_city'] ?? 'N/A';
-    final startTime = widget.itemData?['start_time'] ?? 'N/A';
-    final endTime = widget.itemData?['end_time'] ?? 'N/A';
+    final startTime = widget.itemData?['start_time'] != null
+        ? DateFormat.yMd()
+            .add_jm()
+            .format(DateTime.parse(widget.itemData!['start_time']))
+        : 'N/A';
+    final endTime = widget.itemData?['end_time'] != null
+        ? DateFormat.yMd()
+            .add_jm()
+            .format(DateTime.parse(widget.itemData!['end_time']))
+        : 'N/A';
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -416,12 +361,12 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Colors.yellow.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.yellow),
-                  ),
+                      color: Colors.yellow.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.yellow)),
                   child: Text(
                     'PKR ${_currentBid.toStringAsFixed(0)}',
                     style: const TextStyle(
@@ -434,49 +379,6 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
               ],
             ),
             const SizedBox(height: 16),
-            if (_auctionEnded && _auctionWinner != null) ...[
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.green.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.green),
-                ),
-                child: Column(
-                  children: [
-                    const Icon(Icons.emoji_events, color: Colors.yellow, size: 32),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Auction Winner!',
-                      style: TextStyle(
-                        color: Colors.yellow,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Winning Bid: PKR ${_auctionWinner!['winning_amount']}',
-                      style: const TextStyle(color: Colors.white, fontSize: 16),
-                    ),
-                    const SizedBox(height: 12),
-                    ElevatedButton(
-                      onPressed: _navigateToWinnerScreen,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.yellow,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      ),
-                      child: const Text(
-                        'View Winner Details',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
             Container(
               padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
               decoration: BoxDecoration(
@@ -489,7 +391,7 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
                   const SizedBox(width: 8),
                   Text(
                     '$_registeredUsersCount users registered',
-                    style:  TextStyle(color: Colors.white),
+                    style: const TextStyle(color: Colors.white),
                   ),
                 ],
               ),
@@ -545,8 +447,8 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildDetailRow('Starts:', startTime.toString()),
-                  _buildDetailRow('Ends:', endTime.toString()),
+                  _buildDetailRow('Starts:', startTime),
+                  _buildDetailRow('Ends:', endTime),
                 ],
               ),
             ),
@@ -573,17 +475,15 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
               ),
             ),
             const SizedBox(height: 30),
-            if (_auctionNotStarted) ...[
+            if (_auctionNotStarted)
               _buildAuctionNotStartedUI()
-            ] else if (!_auctionEnded) ...[
-              if (!isRegistered) ...[
+            else if (!_auctionEnded)
+              if (!isRegistered)
                 _buildRegistrationRequiredUI()
-              ] else ...[
+              else
                 _buildBiddingUI()
-              ]
-            ] else ...[
-              _buildAuctionEndedUI()
-            ],
+            else
+              _buildAuctionEndedUI(),
           ],
         ),
       ),
@@ -731,12 +631,12 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
           child: _isPlacingBid
               ? const CircularProgressIndicator(color: Colors.black)
               : const Text(
-            'Place Bid',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 18,
-            ),
-          ),
+                  'Place Bid',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
         ),
         const SizedBox(height: 16),
         Row(
@@ -789,115 +689,38 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
   }
 
   Widget _buildAuctionEndedUI() {
-    final winnerName = _auctionWinner?['user']?['name'] ??
-        _auctionWinner?['user']?['email']?.split('@').first ??
-        'Anonymous';
-    final winningAmount = _auctionWinner?['winning_amount']?.toString() ?? '0';
-
     return Column(
       children: [
-        if (_auctionWinner == null && !_isCheckingWinner) ...[
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.grey[900],
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Center(
-              child: Column(
-                children: [
-                  const Text(
-                    "Auction has ended",
-                    style: TextStyle(
-                      color: Colors.yellow,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.grey[900],
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Center(
+            child: Text(
+              "Auction has ended",
+              style: TextStyle(
+                color: Colors.yellow,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
               ),
             ),
           ),
-          const SizedBox(height: 10),
-          ElevatedButton(
-            onPressed: _navigateToWinnerScreen,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.yellow,
-              foregroundColor: Colors.black,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            ),
-            child: const Text(
-              'View Results',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
+        ),
+        const SizedBox(height: 10),
+        ElevatedButton(
+          onPressed: _navigateToWinnerScreen,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.yellow,
+            foregroundColor: Colors.black,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
           ),
-        ] else if (_isCheckingWinner) ...[
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.grey[900],
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Column(
-              children: [
-                CircularProgressIndicator(color: Colors.yellow),
-                SizedBox(height: 16),
-                Text(
-                  "Determining winner...",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                  ),
-                ),
-              ],
-            ),
+          child: const Text(
+            'View Results',
+            style: TextStyle(fontWeight: FontWeight.bold),
           ),
-        ] else ...[
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.green.withOpacity(0.2),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.green),
-            ),
-            child: Column(
-              children: [
-                const Icon(Icons.emoji_events, color: Colors.yellow, size: 32),
-                const SizedBox(height: 8),
-                const Text(
-                  'Auction Winner!',
-                  style: TextStyle(
-                    color: Colors.yellow,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Winner: $winnerName',
-                  style: const TextStyle(color: Colors.white, fontSize: 16),
-                ),
-                Text(
-                  'Winning Bid: PKR $winningAmount',
-                  style: const TextStyle(color: Colors.white, fontSize: 16),
-                ),
-                const SizedBox(height: 12),
-                ElevatedButton(
-                  onPressed: _navigateToWinnerScreen,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.yellow,
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                  ),
-                  child: const Text(
-                    'View Winner Details',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+        ),
       ],
     );
   }
@@ -906,7 +729,6 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
   void dispose() {
     _bidController.dispose();
     _registrationCountSub?.cancel();
-    _winnerSub?.cancel();
     _auctionTimer?.cancel();
     auctionService.dispose();
     super.dispose();

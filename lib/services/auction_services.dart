@@ -8,6 +8,8 @@ class AuctionService {
   late final RealtimeChannel _auctionChannel;
   final Map<String, StreamController> _activeControllers = {};
   final Map<String, RealtimeChannel> _activeChannels = {};
+  final Set<String> _notifiedAuctionsStart = {};
+  final Set<String> _notifiedAuctionsEnd = {};
 
   AuctionService({required this.supabase}) {
     if (kDebugMode) {
@@ -39,7 +41,224 @@ class AuctionService {
     }
   }
 
-  /// Fetches the highest bid with bidder details for a given item
+  /// Monitors auction status and triggers start/end notifications
+  Future<void> monitorAuctionStatus({
+    required String itemId,
+    required String itemType,
+    required NotificationService notificationService,
+  }) async {
+    try {
+      final auctionKey = '$itemType:$itemId';
+      if (kDebugMode) {
+        debugPrint('Monitoring auction status for $itemId ($itemType)');
+      }
+
+      final auction = await supabase
+          .from(itemType)
+          .select('id, bid_name, start_time, end_time, is_active')
+          .eq('id', itemId)
+          .maybeSingle();
+
+      if (auction == null) {
+        if (kDebugMode) {
+          debugPrint('No auction found for $itemId ($itemType)');
+        }
+        return;
+      }
+
+      final startTime = DateTime.tryParse(auction['start_time'] ?? '');
+      final endTime = DateTime.tryParse(auction['end_time'] ?? '');
+      final isActive = auction['is_active'] ?? false;
+      final itemTitle = auction['bid_name'] ?? 'Item';
+
+      if (kDebugMode) {
+        debugPrint('Auction $itemId: start=$startTime, end=$endTime, active=$isActive');
+      }
+
+      // Check if auction has started
+      if (startTime != null && DateTime.now().isAfter(startTime) && !isActive && !_notifiedAuctionsStart.contains(auctionKey)) {
+        await supabase.from(itemType).update({'is_active': true}).eq('id', itemId);
+        await notificationService.sendAuctionStartNotification(
+          itemId: itemId,
+          itemType: itemType,
+          itemTitle: itemTitle,
+          startTime: startTime,
+        );
+        _notifiedAuctionsStart.add(auctionKey);
+        if (kDebugMode) {
+          debugPrint('Auction $itemId started, notification sent');
+        }
+      }
+
+      // Check if auction has ended
+      if (endTime != null && DateTime.now().isAfter(endTime) && isActive && !_notifiedAuctionsEnd.contains(auctionKey)) {
+        await supabase.from(itemType).update({'is_active': false}).eq('id', itemId);
+        await notificationService.sendAuctionEndNotification(
+          itemId: itemId,
+          itemType: itemType,
+          itemTitle: itemTitle,
+          endTime: endTime,
+        );
+        await checkAndDeclareWinner(
+          itemId: itemId,
+          itemType: itemType,
+          notificationService: notificationService,
+        );
+        _notifiedAuctionsEnd.add(auctionKey);
+        if (kDebugMode) {
+          debugPrint('Auction $itemId ended, notification sent');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error monitoring auction status for $itemId ($itemType): $e');
+      }
+    }
+  }
+
+  /// Monitors all auctions periodically
+  Future<void> monitorAllAuctions(NotificationService notificationService) async {
+    try {
+      if (kDebugMode) {
+        debugPrint('Monitoring all auctions');
+      }
+      final auctionTypes = ['art', 'furniture'];
+      for (final itemType in auctionTypes) {
+        final auctions = await supabase
+            .from(itemType)
+            .select('id, bid_name, start_time, end_time, is_active');
+        for (final auction in auctions) {
+          await monitorAuctionStatus(
+            itemId: auction['id'],
+            itemType: itemType,
+            notificationService: notificationService,
+          );
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error monitoring all auctions: $e');
+      }
+    }
+  }
+
+  Future<Map<String, dynamic>?> checkAndDeclareWinner({
+    required String itemId,
+    required String itemType,
+    required NotificationService notificationService,
+  }) async {
+    try {
+      if (kDebugMode) {
+        debugPrint('Checking and declaring winner for item $itemId ($itemType)');
+      }
+
+      final auction = await supabase
+          .from(itemType)
+          .select('bid_name, images, is_active, end_time')
+          .eq('id', itemId)
+          .maybeSingle();
+
+      if (auction == null) {
+        if (kDebugMode) {
+          debugPrint('No auction found for itemId: $itemId, itemType: $itemType');
+        }
+        return null;
+      }
+
+      if (auction['is_active'] ?? false) {
+        if (kDebugMode) {
+          debugPrint('Auction is still active for itemId: $itemId');
+        }
+        return null;
+      }
+
+      final existingWinner = await supabase
+          .from('auction_winners')
+          .select('*, users!user_id(name, email)')
+          .eq('item_id', itemId)
+          .eq('item_type', itemType)
+          .maybeSingle();
+
+      if (existingWinner != null) {
+        if (kDebugMode) {
+          debugPrint('Winner already declared for itemId: $itemId');
+        }
+        return _formatWinnerData(existingWinner);
+      }
+
+      final highestBid = await supabase
+          .from('bids')
+          .select('*, users!user_id(name, email)')
+          .eq('item_id', itemId)
+          .eq('item_type', itemType)
+          .order('amount', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      if (highestBid == null) {
+        if (kDebugMode) {
+          debugPrint('No bids found for itemId: $itemId, itemType: $itemType');
+        }
+        return null;
+      }
+
+      final winnerData = {
+        'item_id': itemId,
+        'item_type': itemType,
+        'user_id': highestBid['user_id'],
+        'winning_amount': highestBid['amount'],
+        'created_at': DateTime.now().toIso8601String(),
+      };
+
+      await supabase.from('auction_winners').insert(winnerData);
+
+      final winnerName = highestBid['users']?['name'] ??
+          highestBid['users']?['email']?.split('@').first ??
+          'Anonymous';
+
+      await notificationService.sendWinnerNotification(
+        userId: highestBid['user_id'],
+        itemId: itemId,
+        itemType: itemType,
+        itemTitle: auction['bid_name'] ?? 'Item',
+        amount: highestBid['amount'].toString(),
+        winnerName: winnerName,
+      );
+
+      if (kDebugMode) {
+        debugPrint('Winner declared and notification sent successfully');
+      }
+
+      return _formatWinnerData({
+        ...winnerData,
+        'users': highestBid['users'],
+      });
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error declaring winner: $e');
+        debugPrint('Stack trace: ${e is Error ? e.stackTrace : ''}');
+      }
+      rethrow;
+    }
+  }
+
+  Map<String, dynamic> _formatWinnerData(Map<String, dynamic> winnerData) {
+    return {
+      'item_id': winnerData['item_id'],
+      'item_type': winnerData['item_type'],
+      'user_id': winnerData['user_id'],
+      'winning_amount': winnerData['winning_amount'],
+      'created_at': winnerData['created_at'],
+      'user': {
+        'name': winnerData['users']?['name'] ??
+            winnerData['users']?['email']?.split('@').first ??
+            'Anonymous',
+        'email': winnerData['users']?['email'] ?? '',
+        'avatar_url': null,
+      },
+    };
+  }
+
   Future<Map<String, dynamic>?> getHighestBidWithBidder(String itemId, String itemType) async {
     try {
       if (kDebugMode) {
@@ -83,7 +302,7 @@ class AuctionService {
         'created_at': response['created_at'],
         'bidder_id': response['user_id'],
         'bidder_name': bidderName,
-        'bidder_avatar': null, // Set to null since avatar_url doesn't exist
+        'bidder_avatar': null,
       };
     } catch (e) {
       if (kDebugMode) {
@@ -94,14 +313,12 @@ class AuctionService {
     }
   }
 
-  /// Displays the highest bidder for an item, and shows a message if current user is the winner
   Future<void> displayHighestBidderStatus(String itemId, String itemType) async {
     try {
       final highestBid = await getHighestBidWithBidder(itemId, itemType);
 
       if (highestBid == null) {
         debugPrint('No bids found for this item.');
-        // Show a message in your UI: "No bids yet."
         return;
       }
 
@@ -109,20 +326,15 @@ class AuctionService {
       final bidderId = highestBid['bidder_id'];
       final currentUserId = supabase.auth.currentUser?.id;
 
-      // Display the highest bidder's name
       debugPrint('Highest bidder: $bidderName');
 
-      // Check if current user is the highest bidder
       if (bidderId == currentUserId) {
         debugPrint('You have won the bid!');
-        // Optionally handle UI logic for winner
       } else {
         debugPrint('$bidderName is currently the highest bidder.');
-        // Optionally handle UI logic for non-winner
       }
     } catch (e) {
       debugPrint('Error: $e');
-      // Handle error in your UI if needed
     }
   }
 
@@ -178,7 +390,7 @@ class AuctionService {
             return {
               ...Map<String, dynamic>.from(bid as Map),
               'bidder_name': bidderName,
-              'bidder_avatar': null, // Set to null since avatar_url doesn't exist
+              'bidder_avatar': null,
             };
           }).toList();
           controller.add(formattedBids);
@@ -219,12 +431,11 @@ class AuctionService {
         return {
           ...Map<String, dynamic>.from(bid as Map),
           'bidder_name': bidderName,
-          'bidder_avatar': null, // Set to null since avatar_url doesn't exist
+          'bidder_avatar': null,
         };
       }).toList();
       controller.add(formattedBids);
-    })
-        .catchError((e) {
+    }).catchError((e) {
       if (kDebugMode) {
         debugPrint('Initial bid fetch error: $e');
       }
@@ -289,7 +500,6 @@ class AuctionService {
     _activeControllers[channelKey] = controller;
     _activeChannels[channelKey] = channel;
 
-    // Initial fetch
     supabase
         .from(itemType)
         .select()
@@ -334,7 +544,6 @@ class AuctionService {
         throw Exception('User not authenticated');
       }
 
-      // Check if bid amount is higher than current highest bid
       final highestBid = await getHighestBidWithBidder(itemId, itemType);
       if (highestBid != null && amount <= (highestBid['amount'] as num)) {
         throw Exception('Bid amount must be higher than current highest bid');
@@ -405,7 +614,6 @@ class AuctionService {
     _activeControllers[channelKey] = controller;
     _activeChannels[channelKey] = channel;
 
-    // Initial fetch
     supabase
         .from('auction_registrations')
         .select()
@@ -440,7 +648,6 @@ class AuctionService {
       final userId = supabase.auth.currentUser?.id;
       if (userId == null) throw Exception('User not authenticated');
 
-      // Check if already registered
       final existingRegistration = await supabase
           .from('auction_registrations')
           .select()
@@ -521,7 +728,6 @@ class AuctionService {
     _activeControllers[channelKey] = controller;
     _activeChannels[channelKey] = channel;
 
-    // Initial fetch
     supabase
         .from('auction_winners')
         .select('*, users!user_id(name, email)')
@@ -574,136 +780,6 @@ class AuctionService {
     }
   }
 
-  Future<Map<String, dynamic>?> checkAndDeclareWinner({
-    required String itemId,
-    required String itemType,
-    required NotificationService notificationService,
-  }) async {
-    try {
-      if (kDebugMode) {
-        debugPrint('Checking and declaring winner for item $itemId ($itemType)');
-      }
-
-      // Fetch auction details
-      final auction = await supabase
-          .from(itemType)
-          .select('bid_name, images, is_active, end_time')
-          .eq('id', itemId)
-          .maybeSingle();
-
-      if (auction == null) {
-        if (kDebugMode) {
-          debugPrint('No auction found for itemId: $itemId, itemType: $itemType');
-        }
-        return null;
-      }
-
-      // Check if auction is still active
-      if (auction['is_active'] ?? false) {
-        if (kDebugMode) {
-          debugPrint('Auction is still active for itemId: $itemId');
-        }
-        return null;
-      }
-
-      // Check if winner already exists
-      final existingWinner = await supabase
-          .from('auction_winners')
-          .select('*, users!user_id(name, email)')
-          .eq('item_id', itemId)
-          .eq('item_type', itemType)
-          .maybeSingle();
-
-      if (existingWinner != null) {
-        if (kDebugMode) {
-          debugPrint('Winner already declared for itemId: $itemId');
-        }
-        return _formatWinnerData(existingWinner);
-      }
-
-      // Fetch the highest bid with user information
-      final highestBid = await supabase
-          .from('bids')
-          .select('*, users!user_id(name, email)')
-          .eq('item_id', itemId)
-          .eq('item_type', itemType)
-          .order('amount', ascending: false)
-          .limit(1)
-          .maybeSingle();
-
-      if (highestBid == null) {
-        if (kDebugMode) {
-          debugPrint('No bids found for itemId: $itemId, itemType: $itemType');
-        }
-        return null;
-      }
-
-      // Insert winner into auction_winners
-      final winnerData = {
-        'item_id': itemId,
-        'item_type': itemType,
-        'user_id': highestBid['user_id'],
-        'winning_amount': highestBid['amount'],
-        'created_at': DateTime.now().toIso8601String(),
-      };
-
-      await supabase.from('auction_winners').insert(winnerData);
-
-      // Send winner notification
-      final winnerName = highestBid['users']?['name'] ??
-          highestBid['users']?['email']?.split('@').first ??
-          'Anonymous';
-
-      await notificationService.sendWinnerNotification(
-        userId: highestBid['user_id'],
-        itemId: itemId,
-        itemType: itemType,
-        itemTitle: auction['bid_name'] ?? 'Item',
-        imageUrl: auction['images'] != null && (auction['images'] as List).isNotEmpty
-            ? auction['images'][0]
-            : '',
-        amount: highestBid['amount'].toString(),
-        additionalData: {
-          'winner_name': winnerName,
-          'avatar_url': null, // Set to null since avatar_url doesn't exist
-        },
-        winnerName: winnerName,
-      );
-
-      if (kDebugMode) {
-        debugPrint('Winner declared and notification sent successfully');
-      }
-
-      return _formatWinnerData({
-        ...winnerData,
-        'users': highestBid['users'],
-      });
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('Error declaring winner: $e');
-        debugPrint('Stack trace: ${e is Error ? e.stackTrace : ''}');
-      }
-      rethrow;
-    }
-  }
-
-  Map<String, dynamic> _formatWinnerData(Map<String, dynamic> winnerData) {
-    return {
-      'item_id': winnerData['item_id'],
-      'item_type': winnerData['item_type'],
-      'user_id': winnerData['user_id'],
-      'winning_amount': winnerData['winning_amount'],
-      'created_at': winnerData['created_at'],
-      'user': {
-        'name': winnerData['users']?['name'] ??
-            winnerData['users']?['email']?.split('@').first ??
-            'Anonymous',
-        'email': winnerData['users']?['email'] ?? '',
-        'avatar_url': null, // Set to null since avatar_url doesn't exist
-      },
-    };
-  }
-
   void dispose() {
     if (kDebugMode) {
       debugPrint('Disposing AuctionService and closing all channels');
@@ -717,5 +793,7 @@ class AuctionService {
     }
     _activeChannels.clear();
     _activeControllers.clear();
+    _notifiedAuctionsStart.clear();
+    _notifiedAuctionsEnd.clear();
   }
 }

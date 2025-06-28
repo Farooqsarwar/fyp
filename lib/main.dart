@@ -1,8 +1,10 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'services/notification_services.dart';
-import 'services/auction_services.dart'; // Import AuctionService
+import 'services/auction_services.dart';
 import 'view/splashscreen.dart';
 import 'view/Homescreen.dart';
 import 'view/Cars_Bid_detial_and placing.dart';
@@ -12,8 +14,10 @@ import 'view/bidwinscreen.dart';
 import 'view/Uploading_Bid.dart';
 import 'view/All_cars_screen.dart';
 import 'view/all_art_screen.dart';
+
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 final supabase = Supabase.instance.client;
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
@@ -27,8 +31,10 @@ Future<void> main() async {
     OneSignal.Debug.setLogLevel(OSLogLevel.verbose);
     OneSignal.initialize("54dc40d7-17f6-48cb-8cf7-d7398b65e95f");
     await OneSignal.Notifications.requestPermission(true);
+    debugPrint("✅ OneSignal initialized");
 
-    final notificationService = NotificationService(supabase: supabase);
+    final notificationService = NotificationService();
+    notificationService.initializeWithSupabase(supabase);
     final auctionService = AuctionService(supabase: supabase);
     auctionService.initialize();
 
@@ -44,8 +50,12 @@ Future<void> main() async {
     final userId = supabase.auth.currentUser?.id;
     if (userId != null) {
       await notificationService.initialize(userId);
+      debugPrint("✅ NotificationService initialized for user $userId");
     }
-    debugPrint("✅ OneSignal initialized");
+
+    // Start monitoring auctions
+    await auctionService.monitorAllAuctions(notificationService);
+    startAuctionMonitoring(notificationService, auctionService);
 
     // Notification click handler
     OneSignal.Notifications.addClickListener((event) {
@@ -57,7 +67,6 @@ Future<void> main() async {
         return;
       }
 
-      // Check if data is not null
       if (data != null) {
         if (data['type'] == 'auction_won') {
           Navigator.pushNamed(context, '/bidWin', arguments: {
@@ -66,6 +75,7 @@ Future<void> main() async {
             'itemId': data['item_id'] as String? ?? '',
             'itemType': data['item_type'] as String? ?? '',
           });
+          debugPrint('Navigated to /bidWin for itemId: ${data['item_id']}');
         } else if (data['type'] == 'new_bid') {
           Navigator.pushNamed(context, '/liveBidding', arguments: {
             'itemId': data['item_id'] as String? ?? '',
@@ -73,11 +83,26 @@ Future<void> main() async {
             'title': data['item_title'] as String? ?? 'Live Bidding',
             'imageUrl': data['image_url'] as String? ?? '',
           });
+          debugPrint('Navigated to /liveBidding for itemId: ${data['item_id']}');
+        } else if (data['type'] == 'auction_start' || data['type'] == 'auction_end') {
+          Navigator.pushNamed(context, '/artFurnitureDetails', arguments: {
+            'itemId': data['item_id'] as String? ?? '',
+            'itemType': data['item_type'] as String? ?? '',
+            'title': data['item_title'] as String? ?? 'Auction Details',
+            'imageUrl': data['image_url'] as String? ?? '',
+            'isArt': data['item_type'] == 'art',
+            'itemData': {
+              'id': data['item_id'],
+              'bid_name': data['item_title'],
+            },
+          });
+          debugPrint('Navigated to /artFurnitureDetails for itemId: ${data['item_id']}');
         }
       } else {
         debugPrint('❌ Notification data is null');
       }
     });
+
     runApp(MyApp(
       auctionService: auctionService,
       notificationService: notificationService,
@@ -86,6 +111,21 @@ Future<void> main() async {
     debugPrint("❌ Initialization failed: $e\n$stack");
   }
 }
+
+void startAuctionMonitoring(NotificationService notificationService, AuctionService auctionService) {
+  Timer.periodic(Duration(minutes: 1), (timer) async {
+    if (kDebugMode) {
+      debugPrint('Checking auction statuses at ${DateTime.now().toIso8601String()}');
+    }
+    try {
+      await auctionService.monitorAllAuctions(notificationService);
+      debugPrint('Successfully monitored all auctions');
+    } catch (e) {
+      debugPrint('Error monitoring auctions: $e');
+    }
+  });
+}
+
 class MyApp extends StatelessWidget {
   final AuctionService auctionService;
   final NotificationService notificationService;

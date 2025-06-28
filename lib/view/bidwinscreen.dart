@@ -1,7 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../services/auction_services.dart'; // Adjust path as needed
-import '../services/notification_services.dart'; // Adjust path as needed
+import '../services/auction_services.dart';
+import '../services/notification_services.dart';
 
 class BidWinScreen extends StatefulWidget {
   final String imageUrl;
@@ -32,11 +33,15 @@ class _BidWinScreenState extends State<BidWinScreen> {
   List<Map<String, dynamic>> _bids = [];
   bool _isLoading = true;
   bool _isBidFinished = false;
+  bool _isCheckingWinner = false;
+  bool _hasCheckedForWinner = false;
+  StreamSubscription<Map<String, dynamic>?>? _winnerSub;
 
   @override
   void initState() {
     super.initState();
     _fetchData();
+    _setupWinnerListener();
   }
 
   Future<void> _fetchData() async {
@@ -55,7 +60,7 @@ class _BidWinScreenState extends State<BidWinScreen> {
 
       // Fetch winner if auction has ended
       if (_isBidFinished) {
-        await _fetchWinner();
+        await _checkForWinner();
         if (_winner == null) {
           await _fetchBids(); // Fallback to bids if no winner declared
         }
@@ -65,6 +70,56 @@ class _BidWinScreenState extends State<BidWinScreen> {
       debugPrint('Error fetching data: ${e.toString()}');
     } finally {
       setState(() => _isLoading = false);
+    }
+  }
+
+  void _setupWinnerListener() {
+    _winnerSub = widget.auctionService
+        .getWinnerStream(
+      itemId: widget.itemId,
+      itemType: widget.itemType,
+    )
+        .listen((winner) {
+      if (mounted && winner != null && winner != _winner) {
+        setState(() {
+          _winner = winner;
+          _hasCheckedForWinner = true;
+        });
+      }
+    });
+  }
+
+  Future<void> _checkForWinner() async {
+    if (_isCheckingWinner || _hasCheckedForWinner) return;
+
+    setState(() {
+      _isCheckingWinner = true;
+      _hasCheckedForWinner = true;
+    });
+
+    try {
+      final winner = await widget.auctionService.checkAndDeclareWinner(
+        itemId: widget.itemId,
+        itemType: widget.itemType,
+        notificationService: widget.notificationService,
+      );
+
+      if (mounted && winner != null) {
+        setState(() {
+          _winner = winner;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error checking for winner: $e');
+      if (mounted) {
+        setState(() {
+          _hasCheckedForWinner = false;
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isCheckingWinner = false);
+      }
     }
   }
 
@@ -88,7 +143,7 @@ class _BidWinScreenState extends State<BidWinScreen> {
         return {
           ...bid,
           'user_name': userName,
-          'avatar_url': rawData['avatar_url']
+          'avatar_url': rawData['avatar_url'],
         };
       }).toList();
 
@@ -96,23 +151,6 @@ class _BidWinScreenState extends State<BidWinScreen> {
     } catch (e) {
       _showErrorSnackbar('Error fetching bids: ${e.toString()}');
       debugPrint('Error fetching bids: ${e.toString()}');
-    }
-  }
-
-  Future<void> _fetchWinner() async {
-    try {
-      final winner = await widget.auctionService.checkAndDeclareWinner(
-        itemId: widget.itemId,
-        itemType: widget.itemType,
-        notificationService: widget.notificationService,
-      );
-
-      if (winner != null) {
-        setState(() => _winner = winner);
-      }
-    } catch (e) {
-      _showErrorSnackbar('Error fetching winner: ${e.toString()}');
-      debugPrint('Error fetching winner: ${e.toString()}');
     }
   }
 
@@ -245,7 +283,7 @@ class _BidWinScreenState extends State<BidWinScreen> {
                   ),
                   child: Column(
                     children: [
-                      if (_isLoading) ...[
+                      if (_isLoading || _isCheckingWinner) ...[
                         const CircularProgressIndicator(color: Colors.yellow),
                         const SizedBox(height: 16),
                         const Text(
@@ -519,5 +557,11 @@ class _BidWinScreenState extends State<BidWinScreen> {
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _winnerSub?.cancel();
+    super.dispose();
   }
 }

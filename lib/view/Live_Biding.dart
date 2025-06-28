@@ -1,10 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auction_services.dart';
 import '../services/notification_services.dart';
 import '../utils/customlisttile.dart';
 import '../utils/customtextfield.dart';
-import '../view/bidwinscreen.dart';
 
 class LiveBidscreen extends StatefulWidget {
   final String itemId;
@@ -28,35 +29,25 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
   final TextEditingController _bidController = TextEditingController();
   final SupabaseClient _supabase = Supabase.instance.client;
   late final AuctionService _auctionService;
-  late final NotificationService _notificationService;
   bool _isPlacingBid = false;
   bool _auctionEnded = false;
-  bool _auctionNotStarted = false;
   double _currentBid = 0;
   List<Map<String, dynamic>> _bids = [];
   DateTime? _endTime;
-  DateTime? _startTime;
-  Map<String, dynamic>? _winner;
+  StreamSubscription? _bidsSubscription;
+  StreamSubscription? _auctionSubscription;
 
   @override
   void initState() {
     super.initState();
     _auctionService = AuctionService(supabase: _supabase);
-    _notificationService = NotificationService(supabase: _supabase);
-    _initializeNotifications();
-    _fetchAuctionDetails();
+    _fetchInitialData();
     _setupRealtimeUpdates();
   }
 
-  Future<void> _initializeNotifications() async {
-    final userId = _supabase.auth.currentUser?.id;
-    if (userId != null) {
-      await _notificationService.initialize(userId);
-    }
-  }
-
-  Future<void> _fetchAuctionDetails() async {
+  Future<void> _fetchInitialData() async {
     try {
+      // Fetch auction details
       final auctionResponse = await _supabase
           .from(widget.itemType)
           .select()
@@ -66,18 +57,13 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
       setState(() {
         _currentBid = (auctionResponse['price'] as num).toDouble();
         _endTime = DateTime.tryParse(auctionResponse['end_time'] ?? '');
-        _startTime = DateTime.tryParse(auctionResponse['start_time'] ?? '');
         _auctionEnded = auctionResponse['is_active'] == false;
-        _auctionNotStarted = _startTime != null && DateTime.now().isBefore(_startTime!);
       });
 
+      // Fetch initial bids
       await _fetchBids();
-      if (_auctionEnded) {
-        await _fetchWinner();
-      }
     } catch (e) {
-      _showErrorSnackbar('Error fetching auction details: ${e.toString()}');
-      debugPrint('Error fetching auction details: ${e.toString()}');
+      _showErrorSnackbar('Error fetching auction data: ${e.toString()}');
     }
   }
 
@@ -108,42 +94,12 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
       setState(() => _bids = updatedBids);
     } catch (e) {
       _showErrorSnackbar('Error fetching bids: ${e.toString()}');
-      debugPrint('Error fetching bids: ${e.toString()}');
-    }
-  }
-
-  Future<void> _fetchWinner() async {
-    try {
-      final winner = await _auctionService.checkAndDeclareWinner(
-        itemId: widget.itemId,
-        itemType: widget.itemType,
-        notificationService: _notificationService,
-      );
-      //
-      // if (winner != null) {
-      //   setState(() => _winner = winner);
-      //   Navigator.pushReplacement(
-      //     context,
-      //     MaterialPageRoute(
-      //       builder: (context) => BidWinScreen(
-      //         imageUrl: widget.imageUrl,
-      //         itemTitle: widget.itemTitle,
-      //         winningAmount: winner['winning_amount'].toString(),
-      //         isBidFinished: true,
-      //         winnerName: winner['user']?['name'] ?? 'Anonymous',
-      //         winnerAvatar: winner['user']?['avatar_url'],
-      //       ),
-      //     ),
-      //   );
-      // }
-    } catch (e) {
-      _showErrorSnackbar('Error fetching winner: ${e.toString()}');
-      debugPrint('Error fetching winner: ${e.toString()}');
     }
   }
 
   void _setupRealtimeUpdates() {
-    _auctionService.getBidsForAuction(widget.itemId, widget.itemType).listen((bids) {
+    // Listen for new bids
+    _bidsSubscription = _auctionService.getBidsForAuction(widget.itemId, widget.itemType).listen((bids) {
       final updatedBids = bids.map((bid) {
         final userData = bid['users'] ?? {};
         final rawData = userData['raw_user_meta_data'] as Map<String, dynamic>? ?? {};
@@ -165,24 +121,28 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
       });
     });
 
-    _auctionService.getAuctionById(widget.itemId, widget.itemType).listen((auction) {
+    // Listen for auction status changes
+    _auctionSubscription = _auctionService.getAuctionById(widget.itemId, widget.itemType).listen((auction) {
       if (auction != null) {
         setState(() {
           _auctionEnded = !auction['is_active'];
           _endTime = DateTime.tryParse(auction['end_time'] ?? '');
-          _startTime = DateTime.tryParse(auction['start_time'] ?? '');
-          _auctionNotStarted = _startTime != null && DateTime.now().isBefore(_startTime!);
           _currentBid = (auction['price'] as num).toDouble();
         });
+
         if (_auctionEnded) {
           _showAuctionEndedDialog();
-          _fetchWinner();
         }
       }
     });
   }
 
   Future<void> _placeBid() async {
+    if (_auctionEnded) {
+      _showErrorSnackbar('Auction has ended');
+      return;
+    }
+
     final bidAmount = double.tryParse(_bidController.text);
     if (bidAmount == null || bidAmount <= _currentBid) {
       _showErrorSnackbar('Bid must be higher than ${_currentBid.toStringAsFixed(0)} PKR');
@@ -216,17 +176,14 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
           style: TextStyle(color: Colors.yellow),
         ),
         content: const Text(
-          "This auction has ended. The winner will be notified shortly.",
+          "This auction has ended. No more bids can be placed.",
           style: TextStyle(color: Colors.white70),
         ),
         actions: [
           TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.pop(context);
-            },
+            onPressed: () => Navigator.pop(context),
             child: const Text(
-              "VIEW RESULTS",
+              "OK",
               style: TextStyle(color: Colors.yellow),
             ),
           ),
@@ -256,7 +213,7 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
   String _formatTimeRemaining() {
     if (_endTime == null) return "00:00:00";
     final remaining = _endTime!.difference(DateTime.now());
-    if (remaining.isNegative) return "00:00:00";
+    if (remaining.isNegative) return "Auction Ended";
 
     return "${remaining.inHours.remainder(24).toString().padLeft(2, '0')}:"
         "${remaining.inMinutes.remainder(60).toString().padLeft(2, '0')}:"
@@ -273,6 +230,7 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Item Image
                 Image.network(
                   widget.imageUrl,
                   fit: BoxFit.cover,
@@ -286,12 +244,15 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
                     ),
                   ),
                 ),
+
                 const SizedBox(height: 10),
+
+                // Auction Info
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      "Ends In: ${_formatTimeRemaining()}",
+                      _auctionEnded ? "Auction Ended" : "Ends In: ${_formatTimeRemaining()}",
                       style: const TextStyle(color: Colors.white, fontSize: 20),
                     ),
                     Text(
@@ -300,7 +261,10 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
                     ),
                   ],
                 ),
+
                 const SizedBox(height: 20),
+
+                // Bids List
                 _bids.isEmpty
                     ? const Center(
                   child: Text(
@@ -332,36 +296,41 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
                     );
                   }).toList(),
                 ),
+
                 const SizedBox(height: 20),
-                const Text(
-                  "Your Bid",
-                  style: TextStyle(color: Colors.white, fontSize: 20),
-                ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: CustomTextField(
-                        text: "Enter your bid",
-                        controller: _bidController,
-                        keyboardType: TextInputType.number,
+
+                // Bid Input
+                if (!_auctionEnded) ...[
+                  const Text(
+                    "Your Bid",
+                    style: TextStyle(color: Colors.white, fontSize: 20),
+                  ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: CustomTextField(
+                          text: "Enter your bid",
+                          controller: _bidController,
+                          keyboardType: TextInputType.number,
+                        ),
                       ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.add, color: Colors.yellow),
-                      onPressed: () {
-                        _bidController.text = (_currentBid + 1000).toStringAsFixed(0);
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.yellow),
-                  onPressed: _isPlacingBid || _auctionEnded || _auctionNotStarted ? null : _placeBid,
-                  child: _isPlacingBid
-                      ? const CircularProgressIndicator(color: Colors.black)
-                      : const Text("Place Bid"),
-                ),
+                      IconButton(
+                        icon: const Icon(Icons.add, color: Colors.yellow),
+                        onPressed: () {
+                          _bidController.text = (_currentBid + 1000).toStringAsFixed(0);
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.yellow),
+                    onPressed: _isPlacingBid ? null : _placeBid,
+                    child: _isPlacingBid
+                        ? const CircularProgressIndicator(color: Colors.black)
+                        : const Text("Place Bid"),
+                  ),
+                ],
               ],
             ),
           ),
@@ -370,11 +339,11 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
       ),
     );
   }
-
   @override
   void dispose() {
     _bidController.dispose();
-    _notificationService.dispose();
+    _bidsSubscription?.cancel();
+    _auctionSubscription?.cancel();
     _auctionService.dispose();
     super.dispose();
   }
