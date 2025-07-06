@@ -73,24 +73,24 @@ class ChatController extends GetxController {
         .map((events) {
       return events
           .where((e) {
-        // Filter for messages where current user is sender or receiver
-        final isParticipant = e['sender_id'] == currentUserId ||
-            e['receiver_id'] == currentUserId;
+        // Strictly filter messages between current user and the selected receiver
+        final isBetweenCurrentParticipants =
+            (e['sender_id'] == currentUserId && e['receiver_id'] == receiverId.value) ||
+                (e['sender_id'] == receiverId.value && e['receiver_id'] == currentUserId);
 
-        // If item filters are provided, apply them
+        // Apply item filters if provided
         if (itemId != null && itemType != null) {
-          return isParticipant &&
+          return isBetweenCurrentParticipants &&
               e['item_id'] == itemId &&
               e['item_type'] == itemType;
         }
 
-        return isParticipant;
+        return isBetweenCurrentParticipants;
       })
           .map((e) => Message.fromJson(e))
           .toList();
     });
-  }
-  Future<void> onMessageSend({String? itemId, String? itemType}) async {
+  }  Future<void> onMessageSend({String? itemId, String? itemType}) async {
     final text = messageController.text.trim();
     if (text.isNotEmpty) {
       await sendMessage(

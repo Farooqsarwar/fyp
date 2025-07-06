@@ -1,7 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:get/get.dart';
 import '../models/user_model.dart';
-import '../controller/chat_controller.dart';
 import '../services/notification_service.dart';
 
 class UserController extends GetxController {
@@ -20,7 +19,7 @@ class UserController extends GetxController {
       currentUser.value = UserModel.fromJson(data);
 
       // Fixed: Get user ID from current user and pass to NotificationService
-      await Get.find<NotificationService>().storePlayerId(user.id);
+      await Get.find<chat_NotificationService>().storePlayerId(user.id);
     }
   }
 

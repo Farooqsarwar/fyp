@@ -9,12 +9,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../controller/chat_controller.dart';
 import '../views/chat_screen.dart';
 
-class NotificationService {
-  static final NotificationService _instance = NotificationService._internal();
+class chat_NotificationService {
+  static final chat_NotificationService _instance = chat_NotificationService._internal();
 
-  factory NotificationService() => _instance;
+  factory chat_NotificationService() => _instance;
 
-  NotificationService._internal();
+  chat_NotificationService._internal();
 
   final String oneSignalAppId = '112d7536-cde8-4008-9993-7ba95f93f600';
   final String oneSignalRestApiKey =

@@ -35,14 +35,12 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Chats"),
-        backgroundColor: Colors.blue,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: _handleLogout,
-          ),
-        ],
+        title: const Text(
+          "Chats",
+          style: TextStyle(color: Colors.white),
+        ),
+        backgroundColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.yellowAccent),
       ),
       body: Obx(() {
         if (chatController.isLoading.value) {
@@ -50,21 +48,32 @@ class _ChatScreenState extends State<ChatScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                CircularProgressIndicator(),
+                CircularProgressIndicator(
+                  color: Colors.yellowAccent,
+                ),
                 SizedBox(height: 16),
-                Text("Loading users...")
+                Text(
+                  "Loading users...",
+                  style: TextStyle(color: Colors.white),
+                )
               ],
             ),
           );
         }
         if (chatController.users.isEmpty) {
           return const Center(
-            child: Text("No users available"),
+            child: Text(
+              "No users available",
+              style: TextStyle(color: Colors.white),
+            ),
           );
         }
         return ListView.separated(
           itemCount: chatController.users.length,
-          separatorBuilder: (context, index) => const Divider(height: 1),
+          separatorBuilder: (context, index) => const Divider(
+            height: 1,
+            color: Colors.grey,
+          ),
           itemBuilder: (context, index) {
             final user = chatController.users[index];
             return UserListItem(user: user);
@@ -77,12 +86,22 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _handleLogout() async {
     final confirmed = await Get.dialog<bool>(
       AlertDialog(
-        title: const Text('Confirm Logout'),
-        content: const Text('Are you sure you want to sign out?'),
+        backgroundColor: Colors.grey[900],
+        title: const Text(
+          'Confirm Logout',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'Are you sure you want to sign out?',
+          style: TextStyle(color: Colors.white),
+        ),
         actions: [
           TextButton(
             onPressed: () => Get.back(result: false),
-            child: const Text('Cancel'),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.yellowAccent),
+            ),
           ),
           TextButton(
             onPressed: () => Get.back(result: true),
@@ -99,7 +118,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
     try {
       Get.dialog(
-        const Center(child: CircularProgressIndicator()),
+        const Center(
+          child: CircularProgressIndicator(
+            color: Colors.yellowAccent,
+          ),
+        ),
         barrierDismissible: false,
       );
 
@@ -126,21 +149,30 @@ class UserListItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       leading: CircleAvatar(
-        backgroundColor: Colors.blue.shade300,
+        backgroundColor: Colors.yellowAccent.shade700,
         child: Text(
           user.name.isNotEmpty ? user.name[0].toUpperCase() : '?',
           style: const TextStyle(
-            color: Colors.white,
+            color: Colors.black,
             fontWeight: FontWeight.bold,
           ),
         ),
       ),
       title: Text(
         user.name,
-        style: const TextStyle(fontWeight: FontWeight.bold),
+        style: const TextStyle(
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
+        ),
       ),
-      subtitle: Text(user.email),
-      trailing: const Icon(Icons.chat_bubble_outline),
+      subtitle: Text(
+        user.email,
+        style: const TextStyle(color: Colors.grey),
+      ),
+      trailing: const Icon(
+        Icons.chat_bubble_outline,
+        color: Colors.yellowAccent,
+      ),
       onTap: () => Get.to(
             () => ChatDetailScreen(
           receiverId: user.id,
@@ -210,32 +242,38 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         title: Row(
           children: [
             CircleAvatar(
-              backgroundColor: Colors.blue.shade300,
+              backgroundColor: Colors.yellowAccent.shade700,
               radius: 16,
               child: Text(
                 widget.receiverName.isNotEmpty
                     ? widget.receiverName[0].toUpperCase()
                     : '?',
                 style: const TextStyle(
-                  color: Colors.white,
+                  color: Colors.black,
                   fontWeight: FontWeight.bold,
                   fontSize: 14,
                 ),
               ),
             ),
             const SizedBox(width: 8),
-            Text(widget.receiverName),
+            Text(
+              widget.receiverName,
+              style: const TextStyle(color: Colors.white),
+            ),
           ],
         ),
-        backgroundColor: Colors.blue,
+        backgroundColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.yellowAccent),
       ),
       body: Column(
         children: [
-          Expanded(child: _MessageList(
-            controller: scrollController,
-            itemId: widget.itemId,
-            itemType: widget.itemType,
-          )),
+          Expanded(
+            child: _MessageList(
+              controller: scrollController,
+              itemId: widget.itemId,
+              itemType: widget.itemType,
+            ),
+          ),
           _ChatInput(
             itemId: widget.itemId,
             itemType: widget.itemType,
@@ -268,7 +306,11 @@ class _MessageList extends StatelessWidget {
       ),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+          return const Center(
+            child: CircularProgressIndicator(
+              color: Colors.yellowAccent,
+            ),
+          );
         }
 
         if (!snapshot.hasData || snapshot.data!.isEmpty) {
@@ -276,14 +318,17 @@ class _MessageList extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.chat_bubble_outline,
-                    size: 64, color: Colors.grey.shade400),
+                Icon(
+                  Icons.chat_bubble_outline,
+                  size: 64,
+                  color: Colors.yellowAccent.shade700,
+                ),
                 const SizedBox(height: 16),
-                Text(
+                const Text(
                   'Start a conversation!',
                   style: TextStyle(
                     fontSize: 16,
-                    color: Colors.grey.shade600,
+                    color: Colors.white,
                   ),
                 ),
               ],
@@ -330,14 +375,14 @@ class MessageWidget extends StatelessWidget {
         children: [
           if (!isSender) ...[
             CircleAvatar(
-              backgroundColor: Colors.blue.shade300,
+              backgroundColor: Colors.yellowAccent.shade700,
               radius: 16,
               child: Text(
                 chatController.receiverName.value.isNotEmpty
                     ? chatController.receiverName.value[0].toUpperCase()
                     : '?',
                 style: const TextStyle(
-                  color: Colors.white,
+                  color: Colors.black,
                   fontWeight: FontWeight.bold,
                   fontSize: 12,
                 ),
@@ -349,7 +394,9 @@ class MessageWidget extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: isSender ? Colors.blue.shade100 : Colors.grey.shade200,
+                color: isSender
+                    ? Colors.yellowAccent.shade700
+                    : Colors.grey.shade800,
                 borderRadius: BorderRadius.circular(16),
               ),
               child: Column(
@@ -359,18 +406,18 @@ class MessageWidget extends StatelessWidget {
                     Text(
                       'System: ${message.content}',
                       style: TextStyle(
-                        color: Colors.grey.shade700,
+                        color: isSender ? Colors.black : Colors.yellowAccent,
                         fontStyle: FontStyle.italic,
                       ),
                     )
                   else
-                    _buildMessageContent(context),
+                    _buildMessageContent(context, isSender),
                   const SizedBox(height: 4),
                   Text(
                     formattedTime,
                     style: TextStyle(
                       fontSize: 10,
-                      color: Colors.grey.shade600,
+                      color: isSender ? Colors.black54 : Colors.grey,
                     ),
                   ),
                 ],
@@ -382,7 +429,7 @@ class MessageWidget extends StatelessWidget {
     );
   }
 
-  Widget _buildMessageContent(BuildContext context) {
+  Widget _buildMessageContent(BuildContext context, bool isSender) {
     if (message.photoUrl != null) {
       return InkWell(
         onTap: () => Get.to(
@@ -400,9 +447,10 @@ class MessageWidget extends StatelessWidget {
               return Container(
                 width: 200,
                 height: 200,
-                color: Colors.grey.shade300,
+                color: Colors.grey.shade700,
                 child: Center(
                   child: CircularProgressIndicator(
+                    color: Colors.yellowAccent,
                     value: loadingProgress.expectedTotalBytes != null
                         ? loadingProgress.cumulativeBytesLoaded /
                         loadingProgress.expectedTotalBytes!
@@ -415,15 +463,20 @@ class MessageWidget extends StatelessWidget {
               return Container(
                 width: 200,
                 height: 200,
-                color: Colors.grey.shade300,
+                color: Colors.grey.shade700,
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.error_outline, color: Colors.red),
+                    const Icon(
+                      Icons.error_outline,
+                      color: Colors.red,
+                    ),
                     const SizedBox(height: 8),
                     Text(
                       'Image failed to load',
-                      style: TextStyle(color: Colors.grey.shade600),
+                      style: TextStyle(
+                        color: Colors.grey.shade400,
+                      ),
                     ),
                   ],
                 ),
@@ -433,7 +486,12 @@ class MessageWidget extends StatelessWidget {
         ),
       );
     }
-    return Text(message.content);
+    return Text(
+      message.content,
+      style: TextStyle(
+        color: isSender ? Colors.black : Colors.white,
+      ),
+    );
   }
 }
 
@@ -450,10 +508,10 @@ class _ChatInput extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Colors.grey.shade900,
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.2),
+            color: Colors.black.withOpacity(0.3),
             blurRadius: 8,
             offset: const Offset(0, -4),
           ),
@@ -462,15 +520,25 @@ class _ChatInput extends StatelessWidget {
       child: Row(
         children: [
           PopupMenuButton<ImageSource>(
-            icon: const Icon(Icons.camera_alt, color: Colors.blue),
+            icon: const Icon(
+              Icons.camera_alt,
+              color: Colors.yellowAccent,
+            ),
+            color: Colors.grey.shade800,
             itemBuilder: (context) => [
               const PopupMenuItem(
                 value: ImageSource.gallery,
-                child: Text('Choose from gallery'),
+                child: Text(
+                  'Choose from gallery',
+                  style: TextStyle(color: Colors.white),
+                ),
               ),
               const PopupMenuItem(
                 value: ImageSource.camera,
-                child: Text('Take a photo'),
+                child: Text(
+                  'Take a photo',
+                  style: TextStyle(color: Colors.white),
+                ),
               ),
             ],
             onSelected: (source) => chatController.pickImage(
@@ -482,14 +550,16 @@ class _ChatInput extends StatelessWidget {
           Expanded(
             child: TextField(
               controller: chatController.messageController,
+              style: const TextStyle(color: Colors.white),
               decoration: InputDecoration(
                 hintText: 'Type a message...',
+                hintStyle: const TextStyle(color: Colors.grey),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(24),
                   borderSide: BorderSide.none,
                 ),
                 filled: true,
-                fillColor: Colors.grey.shade100,
+                fillColor: Colors.grey.shade800,
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 10,
@@ -503,10 +573,12 @@ class _ChatInput extends StatelessWidget {
             width: 40,
             height: 40,
             padding: const EdgeInsets.all(8),
-            child: const CircularProgressIndicator(),
+            child: const CircularProgressIndicator(
+              color: Colors.yellowAccent,
+            ),
           )
               : Material(
-            color: Colors.blue,
+            color: Colors.yellowAccent.shade700,
             borderRadius: BorderRadius.circular(24),
             child: InkWell(
               borderRadius: BorderRadius.circular(24),
@@ -522,7 +594,7 @@ class _ChatInput extends StatelessWidget {
                 ),
                 child: const Icon(
                   Icons.send,
-                  color: Colors.white,
+                  color: Colors.black,
                   size: 20,
                 ),
               ),

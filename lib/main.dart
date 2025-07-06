@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'chat/controller/chat_controller.dart';
 import 'chat/controller/user_controller.dart';
+import 'chat/services/notification_service.dart';
 import 'services/notification_services.dart';
 import 'services/auction_services.dart';
 import 'view/splashscreen.dart';
@@ -23,7 +24,6 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 final supabase = Supabase.instance.client;
 
 Future<void> main() async {
-
   WidgetsFlutterBinding.ensureInitialized();
   try {
     await Supabase.initialize(
@@ -32,8 +32,17 @@ Future<void> main() async {
       "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqcW9ncW55c2toYWtkbHppZXNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDcwMzQ3OTIsImV4cCI6MjA2MjYxMDc5Mn0.BzQpXwZuVBouTQB3bGZVg77SbKhtkrbeowN8ksiDn0k",
     );
     debugPrint("✅ Supabase initialized");
+
+    // Register dependencies with GetX
     Get.put(ChatController(), permanent: true);
     Get.put(UserController(), permanent: true);
+
+    // Register chat_NotificationService - this was missing!
+    Get.put(chat_NotificationService(), permanent: true);
+
+    // Initialize chat notification service
+    final chatNotificationService = Get.find<chat_NotificationService>();
+    await chatNotificationService.init();
 
     OneSignal.Debug.setLogLevel(OSLogLevel.verbose);
     OneSignal.initialize("54dc40d7-17f6-48cb-8cf7-d7398b65e95f");
@@ -50,6 +59,8 @@ Future<void> main() async {
       final userId = data.session?.user.id;
       if (userId != null) {
         notificationService.initialize(userId);
+        // Store player ID for chat notifications
+        chatNotificationService.storePlayerId(userId);
         debugPrint('Initialized notifications for user $userId');
       }
     });
@@ -57,6 +68,7 @@ Future<void> main() async {
     final userId = supabase.auth.currentUser?.id;
     if (userId != null) {
       await notificationService.initialize(userId);
+      await chatNotificationService.storePlayerId(userId);
       debugPrint("✅ NotificationService initialized for user $userId");
     }
 
@@ -132,6 +144,7 @@ void startAuctionMonitoring(NotificationService notificationService, AuctionServ
     }
   });
 }
+
 class MyApp extends StatelessWidget {
   final AuctionService auctionService;
   final NotificationService notificationService;
@@ -140,6 +153,7 @@ class MyApp extends StatelessWidget {
     required this.auctionService,
     required this.notificationService,
   });
+
   @override
   Widget build(BuildContext context) {
     return GetMaterialApp(
