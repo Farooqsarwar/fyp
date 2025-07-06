@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../chat/views/chat_screen.dart';
 import '../services/auction_services.dart';
 import '../services/notification_services.dart';
 
@@ -35,18 +36,49 @@ class _BidWinScreenState extends State<BidWinScreen> {
   bool _isBidFinished = false;
   bool _isCheckingWinner = false;
   bool _hasCheckedForWinner = false;
+  String? _uploaderId;
+  String? _uploaderName;
+  String? _uploaderAvatar;
   StreamSubscription<Map<String, dynamic>?>? _winnerSub;
 
   @override
   void initState() {
     super.initState();
-    _fetchData();
-    _setupWinnerListener();
+    _fetchUploaderDetails().then((_) {
+      _fetchData();
+      _setupWinnerListener();
+    });
   }
 
+  Future<void> _fetchUploaderDetails() async {
+    try {
+      // Get the item details including the owner's user_id
+      final itemResponse = await widget.supabase
+          .from(widget.itemType)  // 'art', 'cars', or 'furniture'
+          .select('user_id, users!user_id(*)')
+          .eq('id', widget.itemId)
+          .single();
+
+      // Extract user information
+      final userData = itemResponse['users'] ?? {};
+      final rawData = userData['raw_user_meta_data'] as Map<String, dynamic>? ?? {};
+
+      setState(() {
+        _uploaderId = itemResponse['user_id']?.toString();
+        _uploaderName = rawData['name'] ??
+            userData['email']?.toString().split('@').first ??
+            'Item Owner';
+        _uploaderAvatar = rawData['avatar_url'];
+      });
+
+      debugPrint('Uploader details loaded: $_uploaderId, $_uploaderName');
+    } catch (e) {
+      debugPrint('Error fetching uploader details: $e');
+      _showErrorSnackbar('Could not load item owner information');
+    }
+  }
   Future<void> _fetchData() async {
     try {
-      // Check auction status
       final auctionResponse = await widget.supabase
           .from(widget.itemType)
           .select()
@@ -55,19 +87,19 @@ class _BidWinScreenState extends State<BidWinScreen> {
 
       setState(() {
         _isBidFinished = auctionResponse['is_active'] == false ||
-            (DateTime.tryParse(auctionResponse['end_time'] ?? '')?.isBefore(DateTime.now()) ?? false);
+            (DateTime.tryParse(auctionResponse['end_time'] ?? '')
+                    ?.isBefore(DateTime.now()) ??
+                false);
       });
 
-      // Fetch winner if auction has ended
       if (_isBidFinished) {
         await _checkForWinner();
         if (_winner == null) {
-          await _fetchBids(); // Fallback to bids if no winner declared
+          await _fetchBids();
         }
       }
     } catch (e) {
       _showErrorSnackbar('Error fetching data: ${e.toString()}');
-      debugPrint('Error fetching data: ${e.toString()}');
     } finally {
       setState(() => _isLoading = false);
     }
@@ -105,16 +137,12 @@ class _BidWinScreenState extends State<BidWinScreen> {
       );
 
       if (mounted && winner != null) {
-        setState(() {
-          _winner = winner;
-        });
+        setState(() => _winner = winner);
       }
     } catch (e) {
       debugPrint('Error checking for winner: $e');
       if (mounted) {
-        setState(() {
-          _hasCheckedForWinner = false;
-        });
+        setState(() => _hasCheckedForWinner = false);
       }
     } finally {
       if (mounted) {
@@ -133,16 +161,17 @@ class _BidWinScreenState extends State<BidWinScreen> {
           .order('amount', ascending: false)
           .limit(10);
 
-      final List<Map<String, dynamic>> bids = List<Map<String, dynamic>>.from(bidsResponse);
+      final List<Map<String, dynamic>> bids =
+          List<Map<String, dynamic>>.from(bidsResponse);
       final updatedBids = bids.map((bid) {
         final userData = bid['users'] ?? {};
-        final rawData = userData['raw_user_meta_data'] as Map<String, dynamic>? ?? {};
-        final userName = rawData['name'] ??
-            userData['email']?.split('@').first ??
-            'Anonymous';
+        final rawData =
+            userData['raw_user_meta_data'] as Map<String, dynamic>? ?? {};
         return {
           ...bid,
-          'user_name': userName,
+          'user_name': rawData['name'] ??
+              userData['email']?.split('@').first ??
+              'Anonymous',
           'avatar_url': rawData['avatar_url'],
         };
       }).toList();
@@ -150,10 +179,43 @@ class _BidWinScreenState extends State<BidWinScreen> {
       setState(() => _bids = updatedBids);
     } catch (e) {
       _showErrorSnackbar('Error fetching bids: ${e.toString()}');
-      debugPrint('Error fetching bids: ${e.toString()}');
     }
   }
 
+  Future<void> _contactUploader() async {
+    if (_uploaderId == null || _uploaderId!.isEmpty) {
+      _showErrorSnackbar('Item owner information not available');
+      return;
+    }
+
+    try {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
+
+      // Navigate to chat screen with uploader details
+      if (mounted) {
+        Navigator.pop(context);
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ChatDetailScreen(
+              receiverId: _uploaderId!,
+              receiverName: _uploaderName ?? 'Item Owner',
+              itemId: widget.itemId,
+              itemType: widget.itemType,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) Navigator.pop(context);
+      _showErrorSnackbar('Error contacting item owner: ${e.toString()}');
+      debugPrint('Error in contactUploader: $e');
+    }
+  }
   void _showErrorSnackbar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -253,10 +315,10 @@ class _BidWinScreenState extends State<BidWinScreen> {
                                 : null,
                             child: winnerAvatar == null
                                 ? const Icon(
-                              Icons.person,
-                              size: 40,
-                              color: Colors.white,
-                            )
+                                    Icons.person,
+                                    size: 40,
+                                    color: Colors.white,
+                                  )
                                 : null,
                           ),
                         ),
@@ -265,7 +327,9 @@ class _BidWinScreenState extends State<BidWinScreen> {
                   ],
                 ),
 
-                SizedBox(height: _isBidFinished && winningAmount.isNotEmpty ? 50 : 20),
+                SizedBox(
+                    height:
+                        _isBidFinished && winningAmount.isNotEmpty ? 50 : 20),
 
                 // Results Section
                 Container(
@@ -367,66 +431,54 @@ class _BidWinScreenState extends State<BidWinScreen> {
                             ),
                           ),
                           const SizedBox(height: 32),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.yellow,
-                                    foregroundColor: Colors.black,
-                                    padding: const EdgeInsets.symmetric(vertical: 16),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                  ),
-                                  icon: const Icon(Icons.phone),
-                                  label: const Text(
-                                    "Contact Winner",
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                  onPressed: () {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('Contact feature coming soon!'),
-                                        backgroundColor: Colors.blue,
-                                      ),
-                                    );
-                                  },
-                                ),
+                          // Contact Uploader Button
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.yellow,
+                              foregroundColor: Colors.black,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              minimumSize: const Size(double.infinity, 0),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.grey[800],
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(vertical: 16),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                  ),
-                                  icon: const Icon(Icons.share),
-                                  label: const Text(
-                                    "Share Result",
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                  onPressed: () {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text('Share feature coming soon!'),
-                                        backgroundColor: Colors.blue,
-                                      ),
-                                    );
-                                  },
-                                ),
+                            ),
+                            icon: const Icon(Icons.chat),
+                            label: const Text(
+                              "Contact Item Owner",
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
                               ),
-                            ],
+                            ),
+                            onPressed: _contactUploader,
+                          ),
+                          const SizedBox(height: 12),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.grey[800],
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              minimumSize: const Size(double.infinity, 0),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            icon: const Icon(Icons.share),
+                            label: const Text(
+                              "Share Result",
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            onPressed: () {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Share feature coming soon!'),
+                                  backgroundColor: Colors.blue,
+                                ),
+                              );
+                            },
                           ),
                         ] else ...[
                           // No bids scenario
@@ -468,7 +520,8 @@ class _BidWinScreenState extends State<BidWinScreen> {
                             decoration: BoxDecoration(
                               color: Colors.orange.withOpacity(0.1),
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                              border: Border.all(
+                                  color: Colors.orange.withOpacity(0.3)),
                             ),
                             child: const Text(
                               "This auction ended without any bids. The item may be relisted in future auctions.",
@@ -482,7 +535,7 @@ class _BidWinScreenState extends State<BidWinScreen> {
                         ]
                       ] else ...[
                         // Ongoing Bid Section
-                        Icon(
+                        const Icon(
                           Icons.access_time,
                           color: Colors.yellow,
                           size: 48,
@@ -511,7 +564,8 @@ class _BidWinScreenState extends State<BidWinScreen> {
                           decoration: BoxDecoration(
                             color: Colors.blue.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                            border:
+                                Border.all(color: Colors.blue.withOpacity(0.3)),
                           ),
                           child: const Text(
                             "Please check back later for the final results. You will be notified when the auction ends.",

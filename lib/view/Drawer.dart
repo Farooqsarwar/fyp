@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:fyp/view/Login_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../chat/views/chat_screen.dart';
 import '../models/fetching user data.dart';
 
 
@@ -145,6 +146,10 @@ class _CustomDrawerState extends State<CustomDrawer> {
                     //       builder: (context) => const LiveBidscreen()),
                     // );
                   }),
+          _buildDrawerItem(Icons.chat, "chat", () => Navigator.push(context,
+              MaterialPageRoute(builder:(context)=> ChatScreen()))),
+
+
           _buildDrawerItem(FontAwesomeIcons.trophy, "Win Bids", () {
             // Navigator.push(
             //   context,
@@ -157,7 +162,6 @@ class _CustomDrawerState extends State<CustomDrawer> {
       ),
     );
   }
-
   Widget _buildDrawerItem(IconData icon, String title, VoidCallback onTap) {
     return ListTile(
       leading: icon is IconData ? Icon(icon) : FaIcon(icon),

@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:get/get_core/src/get_main.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:onesignal_flutter/onesignal_flutter.dart';
+import 'chat/controller/chat_controller.dart';
+import 'chat/controller/user_controller.dart';
 import 'services/notification_services.dart';
 import 'services/auction_services.dart';
 import 'view/splashscreen.dart';
@@ -19,6 +23,7 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 final supabase = Supabase.instance.client;
 
 Future<void> main() async {
+
   WidgetsFlutterBinding.ensureInitialized();
   try {
     await Supabase.initialize(
@@ -27,6 +32,8 @@ Future<void> main() async {
       "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqcW9ncW55c2toYWtkbHppZXNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDcwMzQ3OTIsImV4cCI6MjA2MjYxMDc5Mn0.BzQpXwZuVBouTQB3bGZVg77SbKhtkrbeowN8ksiDn0k",
     );
     debugPrint("✅ Supabase initialized");
+    Get.put(ChatController(), permanent: true);
+    Get.put(UserController(), permanent: true);
 
     OneSignal.Debug.setLogLevel(OSLogLevel.verbose);
     OneSignal.initialize("54dc40d7-17f6-48cb-8cf7-d7398b65e95f");
@@ -125,20 +132,17 @@ void startAuctionMonitoring(NotificationService notificationService, AuctionServ
     }
   });
 }
-
 class MyApp extends StatelessWidget {
   final AuctionService auctionService;
   final NotificationService notificationService;
-
   const MyApp({
     super.key,
     required this.auctionService,
     required this.notificationService,
   });
-
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return GetMaterialApp(
       navigatorKey: navigatorKey,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
