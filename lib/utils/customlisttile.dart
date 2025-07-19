@@ -7,7 +7,7 @@ class CustomListTile extends StatelessWidget {
   CustomListTile(
       {super.key,
       required this.titleText,
-      required this.trailingText, required CircleAvatar leading});
+      required this.trailingText, required CircleAvatar leading, String? subtitleText, Color? backgroundColor, required Color borderColor});
 
   @override
   Widget build(BuildContext context) {

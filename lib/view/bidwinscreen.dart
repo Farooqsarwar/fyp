@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../chat/views/chat_screen.dart';
 import '../services/auction_services.dart';
-import '../services/notification_services.dart';
+import '../services/auction_notification_services.dart';
 
 class BidWinScreen extends StatefulWidget {
   final String imageUrl;
@@ -12,7 +12,7 @@ class BidWinScreen extends StatefulWidget {
   final String itemType;
   final SupabaseClient supabase;
   final AuctionService auctionService;
-  final NotificationService notificationService;
+  final AuctionNotificationServices notificationService;
 
   const BidWinScreen({
     super.key,

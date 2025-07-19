@@ -5,6 +5,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 
+import 'Exit_permission.dart';
+import 'Navigationbar.dart';
+
 class UploadingBidScreen extends StatefulWidget {
   const UploadingBidScreen({super.key});
 
@@ -29,8 +32,6 @@ class _UploadingBidScreenState extends State<UploadingBidScreen> {
   final distanceController = TextEditingController();
   final horsePowerController = TextEditingController();
   final artistController = TextEditingController();
-  final mediumController = TextEditingController();
-  final dimensionsController = TextEditingController();
   final conditionController = TextEditingController();
   final materialController = TextEditingController();
 
@@ -61,8 +62,6 @@ class _UploadingBidScreenState extends State<UploadingBidScreen> {
     distanceController.dispose();
     horsePowerController.dispose();
     artistController.dispose();
-    mediumController.dispose();
-    dimensionsController.dispose();
     conditionController.dispose();
     materialController.dispose();
     super.dispose();
@@ -258,8 +257,6 @@ class _UploadingBidScreenState extends State<UploadingBidScreen> {
         },
         if (selectedCategory == "Art") ...{
           'artist': artistController.text,
-          'medium': mediumController.text,
-          'dimensions': dimensionsController.text,
           'condition': conditionController.text,
           'material': materialController.text,
         },
@@ -516,8 +513,6 @@ class _UploadingBidScreenState extends State<UploadingBidScreen> {
     return [
       buildInputField("Bid Name", bidNameController, validator: (value) => value!.isEmpty ? 'Please enter a bid name' : null),
       buildInputField("Artist", artistController),
-      buildInputField("Medium", mediumController),
-      buildInputField("Dimensions", dimensionsController),
       buildInputField("Condition", conditionController, validator: (value) => value!.isEmpty ? 'Please enter the condition' : null),
       buildInputField("Material", materialController, validator: (value) => value!.isEmpty ? 'Please enter the material' : null),
       buildInputField("Price (PKR)", priceController, keyboardType: TextInputType.number, validator: (value) {
@@ -553,7 +548,9 @@ class _UploadingBidScreenState extends State<UploadingBidScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
+    return WillPopScope(
+        onWillPop: () => ExitConfirmation.showExitDialog(context),
+    child:  SafeArea(
       child: Scaffold(
         backgroundColor: Colors.black,
         body: Stack(
@@ -604,7 +601,8 @@ class _UploadingBidScreenState extends State<UploadingBidScreen> {
             buildFullScreenImage(),
           ],
         ),
-      ),
+          bottomNavigationBar: const Navigationbar()      ),
+    )
     );
   }
 }

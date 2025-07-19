@@ -89,7 +89,7 @@ class _AllFurnitureScreenState extends State<AllFurnitureScreen> {
                     MaterialPageRoute(
                       builder: (context) => ArtFurnitureDetailsScreen(
                         imageUrl: imageUrl,
-                        title: furnitureItem['title'] ?? 'No Title',
+                        title: furnitureItem['bid_name'] ?? 'No Title',
                         isArt: false,
                         itemData: furnitureItem,
                       ),
@@ -132,7 +132,7 @@ class _AllFurnitureScreenState extends State<AllFurnitureScreen> {
                             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                             children: [
                               Text(
-                                furnitureItem['title'] ?? 'No Title',
+                                furnitureItem['bid_name'] ?? 'No Title',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 18,

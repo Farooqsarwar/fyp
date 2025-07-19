@@ -10,22 +10,6 @@ class Appbar extends StatelessWidget implements PreferredSizeWidget {
       backgroundColor: Colors.black, // Set your desired color here
       centerTitle: true, // Center the title
       elevation: 2, // Adjust the shadow effect
-      title: SizedBox(
-        width: 350,
-        height: 50,
-        child: TextField(
-          decoration: InputDecoration(
-            suffixIcon: const Icon(
-              Icons.search,
-              color: Color(0xFFFFFFFF),
-              size: 35,
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(20),
-            ),
-          ),
-        ),
-      ),
       actions: [
         IconButton(
           icon: const Icon(Icons.menu_sharp, color: Colors.white,size: 30,), // 3-line hamburger icon

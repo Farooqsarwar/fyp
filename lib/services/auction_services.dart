@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'notification_services.dart';
+import 'auction_notification_services.dart';
 
 class AuctionService {
   final SupabaseClient supabase;
@@ -45,7 +45,7 @@ class AuctionService {
   Future<void> monitorAuctionStatus({
     required String itemId,
     required String itemType,
-    required NotificationService notificationService,
+    required AuctionNotificationServices notificationService,
   }) async {
     try {
       final auctionKey = '$itemType:$itemId';
@@ -92,18 +92,23 @@ class AuctionService {
 
       // Check if auction has ended
       if (endTime != null && DateTime.now().isAfter(endTime) && isActive && !_notifiedAuctionsEnd.contains(auctionKey)) {
+        // First mark auction as inactive
         await supabase.from(itemType).update({'is_active': false}).eq('id', itemId);
+
+        // Then declare winner
+        await checkAndDeclareWinner(
+          itemId: itemId,
+          itemType: itemType,
+          notificationService: notificationService,
+        );
+
         await notificationService.sendAuctionEndNotification(
           itemId: itemId,
           itemType: itemType,
           itemTitle: itemTitle,
           endTime: endTime,
         );
-        await checkAndDeclareWinner(
-          itemId: itemId,
-          itemType: itemType,
-          notificationService: notificationService,
-        );
+
         _notifiedAuctionsEnd.add(auctionKey);
         if (kDebugMode) {
           debugPrint('Auction $itemId ended, notification sent');
@@ -116,45 +121,21 @@ class AuctionService {
     }
   }
 
-  /// Monitors all auctions periodically
-  Future<void> monitorAllAuctions(NotificationService notificationService) async {
-    try {
-      if (kDebugMode) {
-        debugPrint('Monitoring all auctions');
-      }
-      final auctionTypes = ['art', 'furniture'];
-      for (final itemType in auctionTypes) {
-        final auctions = await supabase
-            .from(itemType)
-            .select('id, bid_name, start_time, end_time, is_active');
-        for (final auction in auctions) {
-          await monitorAuctionStatus(
-            itemId: auction['id'],
-            itemType: itemType,
-            notificationService: notificationService,
-          );
-        }
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('Error monitoring all auctions: $e');
-      }
-    }
-  }
-
+  /// Enhanced winner declaration method
   Future<Map<String, dynamic>?> checkAndDeclareWinner({
     required String itemId,
     required String itemType,
-    required NotificationService notificationService,
+    required AuctionNotificationServices notificationService,
   }) async {
     try {
       if (kDebugMode) {
         debugPrint('Checking and declaring winner for item $itemId ($itemType)');
       }
 
+      // First get the auction title
       final auction = await supabase
           .from(itemType)
-          .select('bid_name, images, is_active, end_time')
+          .select('bid_name, is_active, end_time')
           .eq('id', itemId)
           .maybeSingle();
 
@@ -165,11 +146,21 @@ class AuctionService {
         return null;
       }
 
-      if (auction['is_active'] ?? false) {
+      // Check if auction has ended
+      final endTime = DateTime.tryParse(auction['end_time'] ?? '');
+      if (endTime != null && DateTime.now().isBefore(endTime)) {
         if (kDebugMode) {
-          debugPrint('Auction is still active for itemId: $itemId');
+          debugPrint('Auction has not ended yet for itemId: $itemId');
         }
         return null;
+      }
+
+      // Ensure auction is marked as inactive if it has ended
+      if (auction['is_active'] == true && endTime != null && DateTime.now().isAfter(endTime)) {
+        await supabase.from(itemType).update({'is_active': false}).eq('id', itemId);
+        if (kDebugMode) {
+          debugPrint('Marked auction as inactive for itemId: $itemId');
+        }
       }
 
       final existingWinner = await supabase
@@ -239,6 +230,295 @@ class AuctionService {
         debugPrint('Stack trace: ${e is Error ? e.stackTrace : ''}');
       }
       rethrow;
+    }
+  }
+
+  /// Manually declare winner for a specific auction (useful for ended auctions)
+  Future<Map<String, dynamic>?> declareWinnerForEndedAuction({
+    required String itemId,
+    required String itemType,
+    required AuctionNotificationServices notificationService,
+  }) async {
+    try {
+      if (kDebugMode) {
+        debugPrint('Manually declaring winner for item $itemId ($itemType)');
+      }
+
+      // Get auction details
+      final auction = await supabase
+          .from(itemType)
+          .select('bid_name, is_active, end_time')
+          .eq('id', itemId)
+          .maybeSingle();
+
+      if (auction == null) {
+        if (kDebugMode) {
+          debugPrint('No auction found for itemId: $itemId, itemType: $itemType');
+        }
+        return null;
+      }
+
+      // Check if auction has ended
+      final endTime = DateTime.tryParse(auction['end_time'] ?? '');
+      if (endTime == null || DateTime.now().isBefore(endTime)) {
+        if (kDebugMode) {
+          debugPrint('Auction has not ended yet for itemId: $itemId');
+        }
+        return null;
+      }
+
+      // Ensure auction is marked as inactive
+      if (auction['is_active'] == true) {
+        await supabase.from(itemType).update({'is_active': false}).eq('id', itemId);
+        if (kDebugMode) {
+          debugPrint('Marked auction as inactive for itemId: $itemId');
+        }
+      }
+
+      // Check if winner already exists
+      final existingWinner = await supabase
+          .from('auction_winners')
+          .select('*, users!user_id(name, email)')
+          .eq('item_id', itemId)
+          .eq('item_type', itemType)
+          .maybeSingle();
+
+      if (existingWinner != null) {
+        if (kDebugMode) {
+          debugPrint('Winner already declared for itemId: $itemId');
+        }
+        return _formatWinnerData(existingWinner);
+      }
+
+      // Get highest bid
+      final highestBid = await supabase
+          .from('bids')
+          .select('*, users!user_id(name, email)')
+          .eq('item_id', itemId)
+          .eq('item_type', itemType)
+          .order('amount', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      if (highestBid == null) {
+        if (kDebugMode) {
+          debugPrint('No bids found for itemId: $itemId, itemType: $itemType');
+        }
+        return null;
+      }
+
+      // Create winner record
+      final winnerData = {
+        'item_id': itemId,
+        'item_type': itemType,
+        'user_id': highestBid['user_id'],
+        'winning_amount': highestBid['amount'],
+        'created_at': DateTime.now().toIso8601String(),
+      };
+
+      await supabase.from('auction_winners').insert(winnerData);
+
+      // Send notification
+      final winnerName = highestBid['users']?['name'] ??
+          highestBid['users']?['email']?.split('@').first ??
+          'Anonymous';
+
+      await notificationService.sendWinnerNotification(
+        userId: highestBid['user_id'],
+        itemId: itemId,
+        itemType: itemType,
+        itemTitle: auction['bid_name'] ?? 'Item',
+        amount: highestBid['amount'].toString(),
+        winnerName: winnerName,
+      );
+
+      if (kDebugMode) {
+        debugPrint('Winner declared successfully for itemId: $itemId');
+      }
+
+      return _formatWinnerData({
+        ...winnerData,
+        'users': highestBid['users'],
+      });
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error declaring winner for ended auction: $e');
+        debugPrint('Stack trace: ${e is Error ? e.stackTrace : ''}');
+      }
+      rethrow;
+    }
+  }
+
+  /// Check and declare winners for all ended auctions that don't have winners yet
+  Future<List<Map<String, dynamic>>> declareWinnersForAllEndedAuctions(
+      AuctionNotificationServices notificationService) async {
+    try {
+      if (kDebugMode) {
+        debugPrint('Checking for ended auctions without winners');
+      }
+
+      final List<Map<String, dynamic>> declaredWinners = [];
+      final auctionTypes = ['art', 'furniture'];
+
+      for (final itemType in auctionTypes) {
+        // Get all ended auctions
+        final endedAuctions = await supabase
+            .from(itemType)
+            .select('id, bid_name, end_time, is_active')
+            .lt('end_time', DateTime.now().toIso8601String());
+
+        for (final auction in endedAuctions) {
+          final itemId = auction['id'];
+
+          // Check if winner already exists
+          final existingWinner = await supabase
+              .from('auction_winners')
+              .select('id')
+              .eq('item_id', itemId)
+              .eq('item_type', itemType)
+              .maybeSingle();
+
+          if (existingWinner == null) {
+            // No winner declared yet, declare one
+            final winner = await declareWinnerForEndedAuction(
+              itemId: itemId,
+              itemType: itemType,
+              notificationService: notificationService,
+            );
+
+            if (winner != null) {
+              declaredWinners.add(winner);
+            }
+          }
+        }
+      }
+
+      if (kDebugMode) {
+        debugPrint('Declared ${declaredWinners.length} winners for ended auctions');
+      }
+
+      return declaredWinners;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error declaring winners for ended auctions: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// Monitors all auctions periodically
+  Future<void> monitorAllAuctions(AuctionNotificationServices notificationService) async {
+    try {
+      if (kDebugMode) {
+        debugPrint('Monitoring all auctions');
+      }
+      final auctionTypes = ['art', 'furniture'];
+      for (final itemType in auctionTypes) {
+        final auctions = await supabase
+            .from(itemType)
+            .select('id, bid_name, start_time, end_time, is_active');
+        for (final auction in auctions) {
+          await monitorAuctionStatus(
+            itemId: auction['id'],
+            itemType: itemType,
+            notificationService: notificationService,
+          );
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error monitoring all auctions: $e');
+      }
+    }
+  }
+
+  /// Get auction status with winner info
+  Future<Map<String, dynamic>?> getAuctionStatusWithWinner(
+      String itemId, String itemType) async {
+    try {
+      // Get auction details
+      final auction = await supabase
+          .from(itemType)
+          .select('*')
+          .eq('id', itemId)
+          .maybeSingle();
+
+      if (auction == null) return null;
+
+      // Get winner if exists
+      final winner = await supabase
+          .from('auction_winners')
+          .select('*, users!user_id(name, email)')
+          .eq('item_id', itemId)
+          .eq('item_type', itemType)
+          .maybeSingle();
+
+      // Get highest bid
+      final highestBid = await getHighestBidWithBidder(itemId, itemType);
+
+      return {
+        'auction': auction,
+        'winner': winner != null ? _formatWinnerData(winner) : null,
+        'highest_bid': highestBid,
+        'has_ended': DateTime.tryParse(auction['end_time'] ?? '')
+            ?.isBefore(DateTime.now()) ?? false,
+        'is_active': auction['is_active'] ?? false,
+      };
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error getting auction status with winner: $e');
+      }
+      rethrow;
+    }
+  }
+
+  /// Debug method to check why a winner wasn't declared
+  Future<Map<String, dynamic>> debugWinnerDeclaration(
+      String itemId, String itemType) async {
+    try {
+      final auction = await supabase
+          .from(itemType)
+          .select('*')
+          .eq('id', itemId)
+          .maybeSingle();
+
+      final winner = await supabase
+          .from('auction_winners')
+          .select('*')
+          .eq('item_id', itemId)
+          .eq('item_type', itemType)
+          .maybeSingle();
+
+      final bids = await supabase
+          .from('bids')
+          .select('*')
+          .eq('item_id', itemId)
+          .eq('item_type', itemType)
+          .order('amount', ascending: false);
+
+      final now = DateTime.now();
+      final endTime = DateTime.tryParse(auction?['end_time'] ?? '');
+
+      return {
+        'auction_exists': auction != null,
+        'auction_is_active': auction?['is_active'] ?? false,
+        'auction_end_time': auction?['end_time'],
+        'current_time': now.toIso8601String(),
+        'auction_has_ended': endTime?.isBefore(now) ?? false,
+        'winner_exists': winner != null,
+        'total_bids': bids.length,
+        'highest_bid_amount': bids.isNotEmpty ? bids.first['amount'] : null,
+        'debug_info': {
+          'auction_data': auction,
+          'winner_data': winner,
+          'bids_data': bids,
+        }
+      };
+    } catch (e) {
+      return {
+        'error': e.toString(),
+        'debug_info': 'Failed to fetch debug information'
+      };
     }
   }
 
@@ -776,6 +1056,106 @@ class AuctionService {
         debugPrint('Error checking registration status: $e');
         debugPrint('Stack trace: ${e is Error ? e.stackTrace : ''}');
       }
+      rethrow;
+    }
+  }
+// Add these methods to your AuctionService class
+
+  Future<List<Map<String, dynamic>>> getAuctionsRegisteredByUser() async {
+    try {
+      final userId = supabase.auth.currentUser?.id;
+      if (userId == null) return [];
+
+      final response = await supabase
+          .from('auction_registrations')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', ascending: false);
+
+      final registrations = List<Map<String, dynamic>>.from(response);
+      List<Map<String, dynamic>> enrichedRegistrations = [];
+
+      for (var reg in registrations) {
+        final itemType = reg['item_type'];
+        final itemId = reg['item_id'];
+
+        Map<String, dynamic>? itemData;
+
+        if (itemType != null && itemId != null) {
+          try {
+            final itemResponse = await supabase
+                .from(itemType)
+                .select('*') // Fetch all fields
+                .eq('id', itemId)
+                .single();
+
+            itemData = Map<String, dynamic>.from(itemResponse);
+          } catch (e) {
+            debugPrint('Error fetching item from $itemType table: $e');
+          }
+        }
+
+        enrichedRegistrations.add({
+          ...reg, // Keep all original registration data
+          'item_name': itemData?['bid_name'] ?? 'Unknown Item',
+          'item_image': (itemData?['images'] as List?)?.firstOrNull,
+          'end_time': itemData?['end_time'],
+          'is_active': itemData?['is_active'],
+          'item_data': itemData ?? {}, // Full item data
+        });
+      }
+
+      return enrichedRegistrations;
+    } catch (e) {
+      debugPrint('Error fetching registered auctions: $e');
+      rethrow;
+    }
+  }
+  Future<List<Map<String, dynamic>>> getAuctionsWonByUser() async {
+    try {
+      final userId = supabase.auth.currentUser?.id;
+      if (userId == null) return [];
+
+      final response = await supabase
+          .from('auction_winners')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', ascending: false);
+
+      final winners = List<Map<String, dynamic>>.from(response);
+
+      List<Map<String, dynamic>> enrichedWinners = [];
+
+      for (var winner in winners) {
+        final itemType = winner['item_type'];
+        final itemId = winner['item_id'];
+
+        Map<String, dynamic>? itemData;
+        if (itemType != null && itemId != null) {
+          try {
+            final itemResponse = await supabase
+                .from(itemType)
+                .select('*') // Fetch all fields
+                .eq('id', itemId)
+                .single();
+
+            itemData = Map<String, dynamic>.from(itemResponse);
+          } catch (e) {
+            debugPrint('Error fetching item from $itemType table: $e');
+          }
+        }
+
+        enrichedWinners.add({
+          ...winner, // Keep all original winner data
+          'item_name': itemData?['bid_name'] ?? 'Unknown Item',
+          'item_image': (itemData?['images'] as List?)?.firstOrNull,
+          'item_data': itemData ?? {}, // Full item data
+        });
+      }
+
+      return enrichedWinners;
+    } catch (e) {
+      debugPrint('Error fetching auctions won by user: $e');
       rethrow;
     }
   }

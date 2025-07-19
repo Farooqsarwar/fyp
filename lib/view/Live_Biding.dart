@@ -1,9 +1,8 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/auction_services.dart';
-import '../services/notification_services.dart';
+import '../services/auction_notification_services.dart';
 import '../utils/customlisttile.dart';
 import '../utils/customtextfield.dart';
 
@@ -34,8 +33,12 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
   double _currentBid = 0;
   List<Map<String, dynamic>> _bids = [];
   DateTime? _endTime;
+  String? _highestBidderId;
+  String? _highestBidderName;
   StreamSubscription? _bidsSubscription;
   StreamSubscription? _auctionSubscription;
+  Timer? _countdownTimer;
+  String _timeRemaining = "00:00:00";
 
   @override
   void initState() {
@@ -43,6 +46,7 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
     _auctionService = AuctionService(supabase: _supabase);
     _fetchInitialData();
     _setupRealtimeUpdates();
+    _startCountdownTimer();
   }
 
   Future<void> _fetchInitialData() async {
@@ -58,12 +62,44 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
         _currentBid = (auctionResponse['price'] as num).toDouble();
         _endTime = DateTime.tryParse(auctionResponse['end_time'] ?? '');
         _auctionEnded = auctionResponse['is_active'] == false;
+        _updateTimeRemaining(); // Initialize the timer display
       });
 
       // Fetch initial bids
       await _fetchBids();
     } catch (e) {
       _showErrorSnackbar('Error fetching auction data: ${e.toString()}');
+    }
+  }
+
+  void _startCountdownTimer() {
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        setState(() {
+          _updateTimeRemaining();
+        });
+      }
+    });
+  }
+
+  void _updateTimeRemaining() {
+    if (_endTime == null) {
+      _timeRemaining = "00:00:00";
+      return;
+    }
+
+    final remaining = _endTime!.difference(DateTime.now());
+    if (remaining.isNegative) {
+      _timeRemaining = "Auction Ended";
+      if (!_auctionEnded) {
+        _auctionEnded = true;
+        _showAuctionEndedDialog();
+      }
+    } else {
+      _timeRemaining =
+          "${remaining.inHours.remainder(24).toString().padLeft(2, '0')}:"
+          "${remaining.inMinutes.remainder(60).toString().padLeft(2, '0')}:"
+          "${remaining.inSeconds.remainder(60).toString().padLeft(2, '0')}";
     }
   }
 
@@ -77,39 +113,29 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
           .order('amount', ascending: false)
           .limit(10);
 
-      final List<Map<String, dynamic>> bids = List<Map<String, dynamic>>.from(bidsResponse);
+      final List<Map<String, dynamic>> bids =
+          List<Map<String, dynamic>>.from(bidsResponse);
+      final currentUserId = _supabase.auth.currentUser?.id;
+
       final updatedBids = bids.map((bid) {
         final userData = bid['users'] ?? {};
-        final rawData = userData['raw_user_meta_data'] as Map<String, dynamic>? ?? {};
+        final rawData =
+            userData['raw_user_meta_data'] as Map<String, dynamic>? ?? {};
         final userName = rawData['name'] ??
             userData['email']?.split('@').first ??
             'Anonymous';
+
+        final isHighest = bids.indexOf(bid) == 0;
+        if (isHighest) {
+          _highestBidderName = userName;
+        }
+
         return {
           ...bid,
           'user_name': userName,
-          'avatar_url': rawData['avatar_url']
-        };
-      }).toList();
-
-      setState(() => _bids = updatedBids);
-    } catch (e) {
-      _showErrorSnackbar('Error fetching bids: ${e.toString()}');
-    }
-  }
-
-  void _setupRealtimeUpdates() {
-    // Listen for new bids
-    _bidsSubscription = _auctionService.getBidsForAuction(widget.itemId, widget.itemType).listen((bids) {
-      final updatedBids = bids.map((bid) {
-        final userData = bid['users'] ?? {};
-        final rawData = userData['raw_user_meta_data'] as Map<String, dynamic>? ?? {};
-        final userName = rawData['name'] ??
-            userData['email']?.split('@').first ??
-            'Anonymous';
-        return {
-          ...bid,
-          'user_name': userName,
-          'avatar_url': rawData['avatar_url']
+          'avatar_url': rawData['avatar_url'],
+          'is_highest': isHighest,
+          'is_current_user': bid['user_id'] == currentUserId,
         };
       }).toList();
 
@@ -117,12 +143,56 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
         _bids = updatedBids;
         if (_bids.isNotEmpty) {
           _currentBid = (_bids.first['amount'] as num).toDouble();
+          _highestBidderId = _bids.first['user_id'];
+        }
+      });
+    } catch (e) {
+      _showErrorSnackbar('Error fetching bids: ${e.toString()}');
+    }
+  }
+
+  void _setupRealtimeUpdates() {
+    // Listen for new bids
+    _bidsSubscription = _auctionService
+        .getBidsForAuction(widget.itemId, widget.itemType)
+        .listen((bids) {
+      final currentUserId = _supabase.auth.currentUser?.id;
+
+      final updatedBids = bids.map((bid) {
+        final userData = bid['users'] ?? {};
+        final rawData =
+            userData['raw_user_meta_data'] as Map<String, dynamic>? ?? {};
+        final userName = rawData['name'] ??
+            userData['email']?.split('@').first ??
+            'Anonymous';
+
+        final isHighest = bids.indexOf(bid) == 0;
+        if (isHighest) {
+          _highestBidderName = userName;
+        }
+
+        return {
+          ...bid,
+          'user_name': userName,
+          'avatar_url': rawData['avatar_url'],
+          'is_highest': isHighest,
+          'is_current_user': bid['user_id'] == currentUserId,
+        };
+      }).toList();
+
+      setState(() {
+        _bids = updatedBids;
+        if (_bids.isNotEmpty) {
+          _currentBid = (_bids.first['amount'] as num).toDouble();
+          _highestBidderId = _bids.first['user_id'];
         }
       });
     });
 
     // Listen for auction status changes
-    _auctionSubscription = _auctionService.getAuctionById(widget.itemId, widget.itemType).listen((auction) {
+    _auctionSubscription = _auctionService
+        .getAuctionById(widget.itemId, widget.itemType)
+        .listen((auction) {
       if (auction != null) {
         setState(() {
           _auctionEnded = !auction['is_active'];
@@ -145,7 +215,8 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
 
     final bidAmount = double.tryParse(_bidController.text);
     if (bidAmount == null || bidAmount <= _currentBid) {
-      _showErrorSnackbar('Bid must be higher than ${_currentBid.toStringAsFixed(0)} PKR');
+      _showErrorSnackbar(
+          'Bid must be higher than ${_currentBid.toStringAsFixed(0)} PKR');
       return;
     }
 
@@ -175,9 +246,32 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
           "Auction Ended",
           style: TextStyle(color: Colors.yellow),
         ),
-        content: const Text(
-          "This auction has ended. No more bids can be placed.",
-          style: TextStyle(color: Colors.white70),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "This auction has ended. No more bids can be placed.",
+              style: TextStyle(color: Colors.white70),
+            ),
+            if (_highestBidderId != null) ...[
+              const SizedBox(height: 16),
+              Text(
+                "Winner: $_highestBidderName",
+                style: const TextStyle(
+                  color: Colors.yellow,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+              Text(
+                "Winning Bid: ${_currentBid.toStringAsFixed(0)} PKR",
+                style: const TextStyle(
+                  color: Colors.yellow,
+                  fontSize: 16,
+                ),
+              ),
+            ],
+          ],
         ),
         actions: [
           TextButton(
@@ -210,18 +304,11 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
     );
   }
 
-  String _formatTimeRemaining() {
-    if (_endTime == null) return "00:00:00";
-    final remaining = _endTime!.difference(DateTime.now());
-    if (remaining.isNegative) return "Auction Ended";
-
-    return "${remaining.inHours.remainder(24).toString().padLeft(2, '0')}:"
-        "${remaining.inMinutes.remainder(60).toString().padLeft(2, '0')}:"
-        "${remaining.inSeconds.remainder(60).toString().padLeft(2, '0')}";
-  }
-
   @override
   Widget build(BuildContext context) {
+    final isCurrentUserHighestBidder =
+        _highestBidderId == _supabase.auth.currentUser?.id;
+
     return SafeArea(
       child: Scaffold(
         body: Padding(
@@ -240,71 +327,130 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
                     height: 250,
                     color: Colors.grey[800],
                     child: const Center(
-                      child: Icon(Icons.image_not_supported, size: 80, color: Colors.white),
+                      child: Icon(Icons.image_not_supported,
+                          size: 80, color: Colors.white),
                     ),
                   ),
                 ),
 
-                const SizedBox(height: 10),
+                const SizedBox(height: 16),
 
                 // Auction Info
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      _auctionEnded ? "Auction Ended" : "Ends In: ${_formatTimeRemaining()}",
-                      style: const TextStyle(color: Colors.white, fontSize: 20),
+                    Row(
+                      children: [
+                        const Icon(Icons.timer,
+                            color: Colors.white70, size: 20),
+                        const SizedBox(width: 8),
+                        Text(
+                          _auctionEnded
+                              ? "Auction Ended"
+                              : "Ends In: $_timeRemaining",
+                          style: TextStyle(
+                            color: _auctionEnded ? Colors.red : Colors.white,
+                            fontSize: 18,
+                          ),
+                        ),
+                      ],
                     ),
-                    Text(
-                      "Highest Bid: ${_currentBid.toStringAsFixed(0)} PKR",
-                      style: const TextStyle(color: Colors.white, fontSize: 20),
-                    ),
+                    const SizedBox(height: 8),
+                    if (_highestBidderId != null)
+                      Row(
+                        children: [
+                          const Icon(Icons.emoji_events,
+                              color: Colors.yellow, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            "${isCurrentUserHighestBidder ? "You" : _highestBidderName} are winning with ",
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 18),
+                          ),
+                          Text(
+                            "${_currentBid.toStringAsFixed(0)} PKR",
+                            style: TextStyle(
+                              color: isCurrentUserHighestBidder
+                                  ? Colors.yellow
+                                  : Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
                   ],
                 ),
 
                 const SizedBox(height: 20),
 
                 // Bids List
+                const Text(
+                  "Bid History",
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
                 _bids.isEmpty
                     ? const Center(
-                  child: Text(
-                    "No bids placed yet",
-                    style: TextStyle(color: Colors.white70, fontSize: 16),
-                  ),
-                )
-                    : Column(
-                  children: _bids.map((bid) {
-                    final username = bid['user_name'] ?? 'Anonymous';
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 10.0),
-                      child: CustomListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Colors.grey[800],
-                          backgroundImage: bid['avatar_url'] != null
-                              ? NetworkImage(bid['avatar_url'])
-                              : null,
-                          child: bid['avatar_url'] == null
-                              ? Text(
-                            username.isNotEmpty ? username[0].toUpperCase() : '?',
-                            style: const TextStyle(color: Colors.white),
-                          )
-                              : null,
+                        child: Text(
+                          "No bids placed yet",
+                          style: TextStyle(color: Colors.white70, fontSize: 16),
                         ),
-                        titleText: username,
-                        trailingText: "${(bid['amount'] as num).toStringAsFixed(0)} PKR",
+                      )
+                    : Column(
+                        children: _bids.map((bid) {
+                          final username = bid['user_name'] ?? 'Anonymous';
+                          final isHighest = bid['is_highest'] == true;
+                          final isCurrentUser = bid['is_current_user'] == true;
+
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 10.0),
+                            child: CustomListTile(
+                              leading: CircleAvatar(
+                                backgroundColor: Colors.grey[800],
+                                backgroundImage: bid['avatar_url'] != null
+                                    ? NetworkImage(bid['avatar_url'])
+                                    : null,
+                                child: bid['avatar_url'] == null
+                                    ? Text(
+                                        username.isNotEmpty
+                                            ? username[0].toUpperCase()
+                                            : '?',
+                                        style: const TextStyle(
+                                            color: Colors.white),
+                                      )
+                                    : null,
+                              ),
+                              titleText: username,
+                              subtitleText: isHighest ? "Winning Bid" : null,
+                              trailingText:
+                                  "${(bid['amount'] as num).toStringAsFixed(0)} PKR",
+                              backgroundColor: isCurrentUser
+                                  ? Colors.grey[800]?.withOpacity(0.5)
+                                  : null,
+                              borderColor: isHighest
+                                  ? Colors.yellow
+                                  : Colors.transparent,
+                            ),
+                          );
+                        }).toList(),
                       ),
-                    );
-                  }).toList(),
-                ),
 
                 const SizedBox(height: 20),
 
                 // Bid Input
                 if (!_auctionEnded) ...[
                   const Text(
-                    "Your Bid",
-                    style: TextStyle(color: Colors.white, fontSize: 20),
+                    "Place Your Bid",
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold),
                   ),
+                  const SizedBox(height: 8),
                   Row(
                     children: [
                       Expanded(
@@ -317,18 +463,34 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
                       IconButton(
                         icon: const Icon(Icons.add, color: Colors.yellow),
                         onPressed: () {
-                          _bidController.text = (_currentBid + 1000).toStringAsFixed(0);
+                          var current =
+                              double.tryParse(_bidController.text) ?? 0;
+                          _bidController.text = (current + 1000)
+                              .toStringAsFixed(0); // Adds 1000 each time
                         },
                       ),
                     ],
                   ),
                   const SizedBox(height: 20),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.yellow),
-                    onPressed: _isPlacingBid ? null : _placeBid,
-                    child: _isPlacingBid
-                        ? const CircularProgressIndicator(color: Colors.black)
-                        : const Text("Place Bid"),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.yellow,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                      ),
+                      onPressed: _isPlacingBid ? null : _placeBid,
+                      child: _isPlacingBid
+                          ? const CircularProgressIndicator(color: Colors.black)
+                          : const Text(
+                              "Place Bid",
+                              style: TextStyle(
+                                color: Colors.black,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                    ),
                   ),
                 ],
               ],
@@ -339,11 +501,13 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
       ),
     );
   }
+
   @override
   void dispose() {
     _bidController.dispose();
     _bidsSubscription?.cancel();
     _auctionSubscription?.cancel();
+    _countdownTimer?.cancel();
     _auctionService.dispose();
     super.dispose();
   }

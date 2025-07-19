@@ -1,153 +1,207 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:fyp/services/auction_services.dart';
+import 'package:fyp/view/splashscreen.dart';
 import 'package:get/get.dart';
-import 'package:get/get_core/src/get_main.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:onesignal_flutter/onesignal_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 import 'chat/controller/chat_controller.dart';
 import 'chat/controller/user_controller.dart';
-import 'chat/services/notification_service.dart';
-import 'services/notification_services.dart';
-import 'services/auction_services.dart';
-import 'view/splashscreen.dart';
-import 'view/Homescreen.dart';
-import 'view/Cars_Bid_detial_and placing.dart';
-import 'view/Art_Furniture_detials_screen.dart';
-import 'view/Live_Biding.dart';
-import 'view/bidwinscreen.dart';
-import 'view/Uploading_Bid.dart';
-import 'view/All_cars_screen.dart';
-import 'view/all_art_screen.dart';
 
+// Define your global variables
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 final supabase = Supabase.instance.client;
+const String _oneSignalAppId = '948ea4ee-8e9f-417c-acce-871c020d315a';
 
-Future<void> main() async {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Supabase
+  await Supabase.initialize(
+    url: "https://ejqogqnyskhakdlziesp.supabase.co",
+    anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqcW9ncW55c2toYWtkbHppZXNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDcwMzQ3OTIsImV4cCI6MjA2MjYxMDc5Mn0.BzQpXwZuVBouTQB3bGZVg77SbKhtkrbeowN8ksiDn0k",
+  );
+
+  // Get current user ID
+  final userId = supabase.auth.currentUser?.id;
+
+  if (userId != null) {
+    // Initialize OneSignal with user context first
+    await _initializeOneSignalWithUser(userId);
+  }
+
+  // Initialize controllers and services
+  Get.put(ChatController(), permanent: true);
+  Get.put(UserController(), permanent: true);
+
+  final notificationService = AuctionNotificationServices();
+  notificationService.initializeWithSupabase(supabase);
+
+  if (userId != null) {
+    await notificationService.initialize(userId);
+  }
+
+  runApp(MyApp(
+    auctionService: AuctionService(supabase: supabase),
+    notificationService: notificationService,
+  ));
+}
+
+Future<void> _initializeOneSignalWithUser(String userId) async {
   try {
-    await Supabase.initialize(
-      url: "https://ejqogqnyskhakdlziesp.supabase.co",
-      anonKey:
-      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqcW9ncW55c2toYWtkbHppZXNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDcwMzQ3OTIsImV4cCI6MjA2MjYxMDc5Mn0.BzQpXwZuVBouTQB3bGZVg77SbKhtkrbeowN8ksiDn0k",
-    );
-    debugPrint("✅ Supabase initialized");
-
-    // Register dependencies with GetX
-    Get.put(ChatController(), permanent: true);
-    Get.put(UserController(), permanent: true);
-
-    // Register chat_NotificationService - this was missing!
-    Get.put(chat_NotificationService(), permanent: true);
-
-    // Initialize chat notification service
-    final chatNotificationService = Get.find<chat_NotificationService>();
-    await chatNotificationService.init();
-
+    // Configure OneSignal
     OneSignal.Debug.setLogLevel(OSLogLevel.verbose);
-    OneSignal.initialize("54dc40d7-17f6-48cb-8cf7-d7398b65e95f");
-    await OneSignal.Notifications.requestPermission(true);
-    debugPrint("✅ OneSignal initialized");
 
-    final notificationService = NotificationService();
-    notificationService.initializeWithSupabase(supabase);
-    final auctionService = AuctionService(supabase: supabase);
-    auctionService.initialize();
+    // Initialize with app ID
+     OneSignal.initialize(_oneSignalAppId);
 
-    // Handle auth state changes
-    supabase.auth.onAuthStateChange.listen((data) {
-      final userId = data.session?.user.id;
-      if (userId != null) {
-        notificationService.initialize(userId);
-        // Store player ID for chat notifications
-        chatNotificationService.storePlayerId(userId);
-        debugPrint('Initialized notifications for user $userId');
-      }
-    });
+    // Set the external user ID
+    await _setOneSignalUser(userId);
 
-    final userId = supabase.auth.currentUser?.id;
-    if (userId != null) {
-      await notificationService.initialize(userId);
-      await chatNotificationService.storePlayerId(userId);
-      debugPrint("✅ NotificationService initialized for user $userId");
-    }
+    // Request notification permission
+    final accepted = await OneSignal.Notifications.requestPermission(true);
+    print('Notification permission granted: $accepted');
 
-    // Start monitoring auctions
-    await auctionService.monitorAllAuctions(notificationService);
-    startAuctionMonitoring(notificationService, auctionService);
+    // Setup notification handlers
+    _setupNotificationHandlers();
 
-    // Notification click handler
-    OneSignal.Notifications.addClickListener((event) {
-      final data = event.notification.additionalData;
-      debugPrint('Notification clicked: $data');
-      final context = navigatorKey.currentContext;
-      if (context == null) {
-        debugPrint('❌ Navigator context is null');
-        return;
-      }
-
-      if (data != null) {
-        if (data['type'] == 'auction_won') {
-          Navigator.pushNamed(context, '/bidWin', arguments: {
-            'itemTitle': data['item_title'] as String? ?? 'Auction Won',
-            'imageUrl': data['image_url'] as String? ?? '',
-            'itemId': data['item_id'] as String? ?? '',
-            'itemType': data['item_type'] as String? ?? '',
-          });
-          debugPrint('Navigated to /bidWin for itemId: ${data['item_id']}');
-        } else if (data['type'] == 'new_bid') {
-          Navigator.pushNamed(context, '/liveBidding', arguments: {
-            'itemId': data['item_id'] as String? ?? '',
-            'itemType': data['item_type'] as String? ?? '',
-            'title': data['item_title'] as String? ?? 'Live Bidding',
-            'imageUrl': data['image_url'] as String? ?? '',
-          });
-          debugPrint('Navigated to /liveBidding for itemId: ${data['item_id']}');
-        } else if (data['type'] == 'auction_start' || data['type'] == 'auction_end') {
-          Navigator.pushNamed(context, '/artFurnitureDetails', arguments: {
-            'itemId': data['item_id'] as String? ?? '',
-            'itemType': data['item_type'] as String? ?? '',
-            'title': data['item_title'] as String? ?? 'Auction Details',
-            'imageUrl': data['image_url'] as String? ?? '',
-            'isArt': data['item_type'] == 'art',
-            'itemData': {
-              'id': data['item_id'],
-              'bid_name': data['item_title'],
-            },
-          });
-          debugPrint('Navigated to /artFurnitureDetails for itemId: ${data['item_id']}');
-        }
-      } else {
-        debugPrint('❌ Notification data is null');
-      }
-    });
-
-    runApp(MyApp(
-      auctionService: auctionService,
-      notificationService: notificationService,
-    ));
-  } catch (e, stack) {
-    debugPrint("❌ Initialization failed: $e\n$stack");
+  } catch (e) {
+    print('Error initializing OneSignal: $e');
   }
 }
 
-void startAuctionMonitoring(NotificationService notificationService, AuctionService auctionService) {
-  Timer.periodic(Duration(minutes: 1), (timer) async {
-    if (kDebugMode) {
-      debugPrint('Checking auction statuses at ${DateTime.now().toIso8601String()}');
-    }
-    try {
-      await auctionService.monitorAllAuctions(notificationService);
-      debugPrint('Successfully monitored all auctions');
-    } catch (e) {
-      debugPrint('Error monitoring auctions: $e');
-    }
+Future<void> _setOneSignalUser(String userId) async {
+  try {
+    // First logout any existing user
+    await OneSignal.logout();
+
+    // Login with new user ID
+    await OneSignal.login(userId);
+
+    // Verify the user was set
+    final oneSignalUserId = await OneSignal.User.pushSubscription.id;
+    print('OneSignal User ID: $oneSignalUserId');
+    print('External User ID set: $userId');
+
+  } catch (e) {
+    print('Error setting OneSignal user: $e');
+  }
+}
+
+void _setupNotificationHandlers() {
+  // Foreground handler
+  OneSignal.Notifications.addForegroundWillDisplayListener((event) {
+    print('Notification received in foreground: ${event.notification.jsonRepresentation()}');
+    event.notification.display();
   });
+
+  // Click handler
+  OneSignal.Notifications.addClickListener((event) {
+    print('Notification clicked: ${event.notification.jsonRepresentation()}');
+    _handleNotificationClick(event.notification.additionalData);
+  });
+}
+
+void _handleNotificationClick(Map<String, dynamic>? data) {
+  final context = navigatorKey.currentContext;
+  if (context == null || data == null) return;
+
+  // Your navigation logic here
+  // ...
+}
+
+class AuctionNotificationServices {
+  static final AuctionNotificationServices _instance = AuctionNotificationServices._internal();
+  factory AuctionNotificationServices() => _instance;
+
+  SupabaseClient? _supabase;
+  bool _isInitialized = false;
+  RealtimeChannel? _notificationChannel;
+
+  AuctionNotificationServices._internal();
+
+  void initializeWithSupabase(SupabaseClient supabase) {
+    _supabase ??= supabase;
+    print('Notification service initialized with Supabase');
+  }
+
+  Future<void> initialize(String userId) async {
+    if (_isInitialized) return;
+
+    try {
+      // Store Player ID
+      await _storePlayerId(userId);
+
+      // Setup realtime listeners
+      _setupNotificationChannel(userId);
+
+      _isInitialized = true;
+      print('Notification service fully initialized for user $userId');
+    } catch (e) {
+      print('Error initializing notification service: $e');
+    }
+  }
+
+  Future<void> _storePlayerId(String userId) async {
+    try {
+      // Wait for OneSignal to be ready
+      await Future.delayed(const Duration(seconds: 2));
+
+      final playerId = await OneSignal.User.pushSubscription.id;
+      if (playerId == null || playerId.isEmpty) {
+        throw Exception('Player ID not available');
+      }
+
+      // Store in Supabase
+      await _supabase?.from('user_devices').upsert({
+        'user_id': userId,
+        'player_id': playerId,
+        'updated_at': DateTime.now().toIso8601String(),
+      }, onConflict: 'user_id');
+
+      print('Successfully stored player ID $playerId for user $userId');
+    } catch (e) {
+      print('Error storing player ID: $e');
+      // Implement retry logic if needed
+    }
+  }
+
+  void _setupNotificationChannel(String userId) {
+    try {
+      _notificationChannel = _supabase?.channel('user_notifications_$userId');
+      _notificationChannel?.onPostgresChanges(
+        event: PostgresChangeEvent.insert,
+        schema: 'public',
+        table: 'notifications',
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'user_id',
+          value: userId,
+        ),
+        callback: (payload) {
+          _handleRealtimeNotification(payload as Map<String, dynamic>);
+        },
+      ).subscribe();
+
+      print('Realtime channel setup for user $userId');
+    } catch (e) {
+      print('Error setting up notification channel: $e');
+    }
+  }
+
+  void _handleRealtimeNotification(Map<String, dynamic> payload) {
+    print('Received realtime notification: $payload');
+    // Handle your notification here
+  }
+
+// Add your other notification methods here...
 }
 
 class MyApp extends StatelessWidget {
   final AuctionService auctionService;
-  final NotificationService notificationService;
+  final AuctionNotificationServices notificationService;
+
   const MyApp({
     super.key,
     required this.auctionService,
@@ -163,52 +217,9 @@ class MyApp extends StatelessWidget {
         scaffoldBackgroundColor: Colors.black,
         useMaterial3: true,
       ),
-      home: const SplashScreen(),
       debugShowCheckedModeBanner: false,
-      routes: {
-        '/home': (context) => const Homescreen(),
-        '/carDetails': (context) {
-          final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-          return CarBidDetailsScreen(
-            imageUrl: args?['imageUrl'] ?? '',
-            title: args?['title'] ?? '',
-            itemData: args?['itemData'] ?? {},
-          );
-        },
-        '/artFurnitureDetails': (context) {
-          final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-          return ArtFurnitureDetailsScreen(
-            imageUrl: args?['imageUrl'] ?? '',
-            title: args?['title'] ?? '',
-            isArt: args?['isArt'] ?? true,
-            itemData: args?['itemData'] ?? {},
-          );
-        },
-        '/liveBidding': (context) {
-          final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-          return LiveBidscreen(
-            itemId: args?['itemId'] ?? '',
-            itemType: args?['itemType'] ?? '',
-            itemTitle: args?['title'] ?? 'Live Bidding',
-            imageUrl: args?['imageUrl'] ?? '',
-          );
-        },
-        '/uploadBid': (context) => const UploadingBidScreen(),
-        '/allCars': (context) => const AllCarsScreen(),
-        '/allArt': (context) => const AllArtScreen(),
-        '/bidWin': (context) {
-          final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
-          return BidWinScreen(
-            itemTitle: args?['itemTitle'] ?? 'Auction Won',
-            imageUrl: args?['imageUrl'] ?? '',
-            itemId: args?['itemId'] ?? '',
-            itemType: args?['itemType'] ?? '',
-            supabase: supabase,
-            auctionService: auctionService,
-            notificationService: notificationService,
-          );
-        },
-      },
+      home: const SplashScreen(),
+      // Add your routes here...
     );
   }
 }

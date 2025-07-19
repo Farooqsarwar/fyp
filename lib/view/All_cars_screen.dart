@@ -97,6 +97,7 @@ class _AllCarsScreenState extends State<AllCarsScreen> {
                     borderRadius: BorderRadius.circular(15),
                   ),
                   child: InkWell(
+                    // In AllCarsScreen's ListView.builder itemBuilder:
                     onTap: () {
                       Navigator.push(
                         context,
@@ -104,6 +105,7 @@ class _AllCarsScreenState extends State<AllCarsScreen> {
                           builder: (context) => CarBidDetailsScreen(
                             imageUrl: imageUrl,
                             title: title.isNotEmpty ? title : 'No Title',
+                            itemData: car, // Pass the entire car data
                           ),
                         ),
                       );

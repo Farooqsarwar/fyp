@@ -3,10 +3,12 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:fyp/view/Login_screen.dart';
+import 'package:fyp/view/wining%20and%20registered%20list.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../chat/views/chat_screen.dart';
 import '../models/fetching user data.dart';
-
+import '../physical auction/physical auction.dart';
+import '../services/auction_services.dart';
 
 class CustomDrawer extends StatefulWidget {
   const CustomDrawer({Key? key}) : super(key: key);
@@ -18,6 +20,8 @@ class CustomDrawer extends StatefulWidget {
 class _CustomDrawerState extends State<CustomDrawer> {
   final SupabaseClient supabase = Supabase.instance.client;
   final UserService _userService = UserService();
+  final AuctionService auctionService =
+      AuctionService(supabase: Supabase.instance.client);
 
   User? _user;
   String _userName = "Guest User";
@@ -99,36 +103,38 @@ class _CustomDrawerState extends State<CustomDrawer> {
       child: DrawerHeader(
         decoration: const BoxDecoration(color: Color(0xFF1B1B1B)),
         child: _isLoading
-            ? const Center(child: CircularProgressIndicator(color: Colors.white))
+            ? const Center(
+                child: CircularProgressIndicator(color: Colors.white))
             : Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Stack(
-              alignment: Alignment.center,
-              children: [
-                ClipOval(
-                  child: _userService.getProfileImageWidget(
-                    filePath: _userPhotoPath,
-                    size: 150,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      ClipOval(
+                        child: _userService.getProfileImageWidget(
+                          filePath: _userPhotoPath,
+                          size: 150,
+                        ),
+                      ),
+                      Positioned(
+                        top: -15,
+                        right: 0,
+                        child: IconButton(
+                          onPressed: _updateProfilePicture,
+                          icon: const Icon(Icons.add,
+                              color: Colors.yellow, size: 30),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                Positioned(
-                  top: -15,
-                  right: 0,
-                  child: IconButton(
-                    onPressed: _updateProfilePicture,
-                    icon: const Icon(Icons.add, color: Colors.yellow, size: 30),
+                  const SizedBox(height: 10),
+                  Text(
+                    _userName,
+                    style: const TextStyle(color: Colors.white, fontSize: 20),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(
-              _userName,
-              style: const TextStyle(color: Colors.white, fontSize: 20),
-            ),
-          ],
-        ),
+                ],
+              ),
       ),
     );
   }
@@ -137,24 +143,37 @@ class _CustomDrawerState extends State<CustomDrawer> {
     return Expanded(
       child: ListView(
         children: [
-          _buildDrawerItem(Icons.list_alt_rounded, "Placed Bids", () => Navigator.pop(context)),
-          _buildDrawerItem(Icons.outbound_sharp, "Ongoing Bids", ()
-          {
-                    // Navigator.push(
-                    //   context,
-                    //   MaterialPageRoute(
-                    //       builder: (context) => const LiveBidscreen()),
-                    // );
-                  }),
-          _buildDrawerItem(Icons.chat, "chat", () => Navigator.push(context,
-              MaterialPageRoute(builder:(context)=> ChatScreen()))),
-
-
+          _buildDrawerItem(
+            Icons.location_on_sharp,
+            "Auctions in city",
+            () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (context) => const PhysicalAuctions()),
+              );
+            },
+          ),
+          _buildDrawerItem(Icons.outbound_sharp, "registered Bids", () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (context) =>
+                      RegisteredAuctionsList(auctionService: auctionService)),
+            );
+          }),
+          _buildDrawerItem(
+              Icons.chat,
+              "chat",
+              () => Navigator.push(context,
+                  MaterialPageRoute(builder: (context) => ChatScreen()))),
           _buildDrawerItem(FontAwesomeIcons.trophy, "Win Bids", () {
-            // Navigator.push(
-            //   context,
-            //   MaterialPageRoute(builder: (context) => const BidWinScreen()),
-            // );
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (context) =>
+                      WonAuctionsList(auctionService: auctionService)),
+            );
           }),
           _buildDrawerItem(Icons.info_outline, "About Us", () {}),
           _buildDrawerItem(Icons.exit_to_app, "Logout", _signOut),
@@ -162,9 +181,10 @@ class _CustomDrawerState extends State<CustomDrawer> {
       ),
     );
   }
+
   Widget _buildDrawerItem(IconData icon, String title, VoidCallback onTap) {
     return ListTile(
-      leading: icon is IconData ? Icon(icon) : FaIcon(icon),
+      leading: FaIcon(icon),
       title: Text(title),
       onTap: onTap,
     );
@@ -183,7 +203,8 @@ class _CustomDrawerState extends State<CustomDrawer> {
           const SizedBox(width: 10),
           const Text(
             "All Rights Reserved",
-            style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+            style: TextStyle(
+                color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
           ),
         ],
       ),

@@ -91,7 +91,7 @@ class _AllArtScreenState extends State<AllArtScreen> {
                     MaterialPageRoute(
                       builder: (context) => ArtFurnitureDetailsScreen(
                         imageUrl: imageUrl,
-                        title: art['title'] ?? 'No Title',
+                        title: art['bid_name'] ?? 'No Title',
                         isArt: true,  // Changed to true for art items
                         itemData: art,
                       ),
@@ -137,7 +137,7 @@ class _AllArtScreenState extends State<AllArtScreen> {
                             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                             children: [
                               Text(
-                                art['title'] ?? 'No Title',
+                                art['bid_name'] ?? 'No Title',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 18,

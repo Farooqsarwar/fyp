@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import '../services/auction_services.dart';
-import '../services/notification_services.dart';
+import '../services/auction_notification_services.dart';
 import 'Live_Biding.dart';
+import 'Predict_price_screen.dart';
 import 'bidwinscreen.dart';
 
 class CarBidDetailsScreen extends StatefulWidget {
@@ -26,64 +27,31 @@ class CarBidDetailsScreen extends StatefulWidget {
 class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
   final supabase = Supabase.instance.client;
   late final AuctionService auctionService;
-  final NotificationService _notificationService = NotificationService();
-  final TextEditingController _bidController = TextEditingController();
-  // State variables
+  final AuctionNotificationServices _notificationService = AuctionNotificationServices();
   double _currentBid = 0;
-  bool _isPlacingBid = false;
   bool _auctionEnded = false;
   bool _auctionNotStarted = false;
   bool isRegistered = false;
   int _registeredUsersCount = 0;
   String? _highestBidderId;
-
-  // Stream subscriptions
+  String _timeRemaining = "00:00:00";
   StreamSubscription<int>? _registrationCountSub;
-  Timer? _auctionTimer;
+  StreamSubscription<List<Map<String, dynamic>>>? _bidsSubscription;
+  StreamSubscription<Map<String, dynamic>?>? _auctionSubscription;
 
   @override
   void initState() {
     super.initState();
     auctionService = AuctionService(supabase: supabase);
     auctionService.initialize();
-
-    _currentBid =
-        double.tryParse(widget.itemData?['price']?.toString() ?? '0') ?? 0;
-    _updateAuctionStatus();
+    _currentBid = double.tryParse(widget.itemData?['price']?.toString() ?? '0') ?? 0;
     _setupRealTimeUpdates();
     _checkRegistration();
-    _setupRegistrationListener();
-    _startAuctionTimer();
-  }
-
-  void _updateAuctionStatus() {
-    final startTime = DateTime.tryParse(widget.itemData?['start_time'] ?? '');
-    final endTime = DateTime.tryParse(widget.itemData?['end_time'] ?? '');
-    final now = DateTime.now();
-
-    final auctionNotStarted = startTime != null && now.isBefore(startTime);
-    final auctionEnded = endTime != null && now.isAfter(endTime) ||
-        (widget.itemData?['is_active'] == false);
-
-    if (auctionNotStarted != _auctionNotStarted ||
-        auctionEnded != _auctionEnded) {
-      setState(() {
-        _auctionNotStarted = auctionNotStarted;
-        _auctionEnded = auctionEnded;
-      });
-    }
-  }
-
-  void _startAuctionTimer() {
-    _auctionTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
-      if (mounted) {
-        _updateAuctionStatus();
-      }
-    });
   }
 
   void _setupRealTimeUpdates() {
-    auctionService
+    // Real-time bids updates
+    _bidsSubscription = auctionService
         .getBidsForAuction(widget.itemData?['id'], 'cars')
         .listen((bids) {
       if (bids.isNotEmpty && mounted) {
@@ -97,7 +65,8 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
       }
     });
 
-    auctionService
+    // Real-time auction status updates
+    _auctionSubscription = auctionService
         .getAuctionById(widget.itemData?['id'], 'cars')
         .listen((auction) {
       if (auction != null && mounted) {
@@ -109,42 +78,45 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
         final auctionEnded = endTime != null && now.isAfter(endTime) ||
             !(auction['is_active'] ?? false);
 
-        if (auctionNotStarted != _auctionNotStarted ||
-            auctionEnded != _auctionEnded) {
+        if (mounted) {
           setState(() {
             _auctionNotStarted = auctionNotStarted;
             _auctionEnded = auctionEnded;
+            widget.itemData?['is_active'] = auction['is_active'];
+            widget.itemData?['start_time'] = auction['start_time'];
+            widget.itemData?['end_time'] = auction['end_time'];
           });
         }
       }
     });
+
+    // Real-time registration count updates
+    if (widget.itemData?['id'] != null) {
+      _registrationCountSub = auctionService
+          .getRegistrationCount(widget.itemData!['id'], 'cars')
+          .listen((count) {
+        if (mounted && count != _registeredUsersCount) {
+          setState(() => _registeredUsersCount = count);
+        }
+      });
+    }
   }
 
   Future<void> _checkRegistration() async {
     if (widget.itemData?['id'] == null) return;
 
-    var isRegistered = await auctionService.isUserRegistered(
-      itemId: widget.itemData!['id'],
-      itemType: 'cars',
-    );
-    if (mounted && isRegistered != isRegistered) {
-      setState(() => isRegistered = isRegistered);
-    }
-  }
+    try {
+      final currentRegistration = await auctionService.isUserRegistered(
+        itemId: widget.itemData!['id'],
+        itemType: 'cars',
+      );
 
-  void _setupRegistrationListener() {
-    if (widget.itemData?['id'] == null) return;
-
-    _registrationCountSub = auctionService
-        .getRegistrationCount(
-      widget.itemData!['id'],
-      'cars',
-    )
-        .listen((count) {
-      if (mounted && count != _registeredUsersCount) {
-        setState(() => _registeredUsersCount = count);
+      if (mounted && currentRegistration != isRegistered) {
+        setState(() => isRegistered = currentRegistration);
       }
-    });
+    } catch (e) {
+      debugPrint('Error checking registration: $e');
+    }
   }
 
   Future<void> _register() async {
@@ -172,8 +144,7 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
         if (mounted) {
           setState(() => isRegistered = true);
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('Already registered for this auction!')),
+            const SnackBar(content: Text('Already registered for this auction!')),
           );
         }
         return;
@@ -195,6 +166,32 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
     }
   }
 
+  void _navigateToLiveBidding() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => LiveBidscreen(
+          itemId: widget.itemData?['id'] ?? '',
+          itemType: 'cars',
+          itemTitle: widget.title,
+          imageUrl: widget.imageUrl,
+        ),
+      ),
+    );
+  }
+
+  void _navigateToPredictScreen() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PredictScreen(
+          imageurl: widget.imageUrl,
+          carData: widget.itemData,
+        ),
+      ),
+    );
+  }
+
   Future<void> _navigateToWinnerScreen() async {
     Navigator.push(
       context,
@@ -212,79 +209,178 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
     );
   }
 
-  Future<void> _placeBid() async {
-    final bidAmount = double.tryParse(_bidController.text);
-    if (bidAmount == null || bidAmount <= _currentBid) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Bid must be higher than ${_currentBid.toStringAsFixed(0)} PKR',
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 150,
+            child: Text(
+              label,
+              style: const TextStyle(color: Colors.grey, fontSize: 16),
+            ),
           ),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    setState(() => _isPlacingBid = true);
-    try {
-      await auctionService.placeBid(
-        itemId: widget.itemData?['id'],
-        itemType: 'cars',
-        amount: bidAmount,
-      );
-
-      final registrations = await supabase
-          .from('auction_registrations')
-          .select('user_id')
-          .eq('item_id', widget.itemData?['id'])
-          .neq('user_id', supabase.auth.currentUser?.id ?? '');
-
-      for (final reg in registrations) {
-        await _notificationService.sendNewBidNotification(
-          userId: reg['user_id'],
-          itemId: widget.itemData?['id'] ?? '',
-          itemType: 'cars',
-          itemTitle: widget.title,
-          amount: bidAmount.toStringAsFixed(0),
-        );
-      }
-
-      _bidController.clear();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Bid placed successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error placing bid: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      debugPrint('Error placing bid: ${e.toString()}');
-    } finally {
-      setState(() => _isPlacingBid = false);
-    }
-  }
-
-  void _navigateToLiveBidding() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => LiveBidscreen(
-          itemId: widget.itemData?['id'] ?? '',
-          itemType: 'cars',
-          itemTitle: widget.title,
-          imageUrl: widget.imageUrl,
-        ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(color: Colors.white, fontSize: 16),
+            ),
+          ),
+        ],
       ),
     );
   }
 
+  Widget _buildAuctionNotStartedUI() {
+    final startTime = widget.itemData?['start_time'] != null
+        ? DateFormat.yMd().add_jm().format(DateTime.parse(widget.itemData!['start_time']))
+        : 'N/A';
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey[900],
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          Text(
+            "Auction starts on $startTime",
+            style: const TextStyle(
+              color: Colors.yellow,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: isRegistered ? null : _register,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isRegistered ? Colors.grey : Colors.yellow,
+              foregroundColor: Colors.black,
+              minimumSize: const Size(double.infinity, 50),
+            ),
+            child: Text(
+              isRegistered ? 'Registered' : 'Register for Auction',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRegistrationRequiredUI() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey[900],
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          const Text(
+            'You must register before you can bid',
+            style: TextStyle(color: Colors.white, fontSize: 16),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _register,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.yellow,
+              foregroundColor: Colors.black,
+              minimumSize: const Size(double.infinity, 50),
+            ),
+            child: const Text(
+              'Register Now',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActiveAuctionUI() {
+    return Column(
+      children: [
+        const SizedBox(height: 20),
+        Row(
+          children: [
+            Expanded(
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.live_tv, color: Colors.black),
+                label: const Text(
+                  "GO TO LIVE BIDDING",
+                  style: TextStyle(
+                    color: Colors.black,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.amber,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                onPressed: _navigateToLiveBidding,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAuctionEndedUI() {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.grey[900],
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Center(
+            child: Text(
+              "Auction has ended",
+              style: TextStyle(
+                color: Colors.yellow,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        ElevatedButton(
+          onPressed: _navigateToWinnerScreen,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.yellow,
+            foregroundColor: Colors.black,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          ),
+          child: const Text(
+            'View Results',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
+  void dispose() {
+    _registrationCountSub?.cancel();
+    _bidsSubscription?.cancel();
+    _auctionSubscription?.cancel();
+    auctionService.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (widget.itemData == null) {
@@ -305,14 +401,10 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
     final horsePower = widget.itemData?['horse_power']?.toString() ?? 'N/A';
     final registrationCity = widget.itemData?['registration_city'] ?? 'N/A';
     final startTime = widget.itemData?['start_time'] != null
-        ? DateFormat.yMd()
-            .add_jm()
-            .format(DateTime.parse(widget.itemData!['start_time']))
+        ? DateFormat.yMd().add_jm().format(DateTime.parse(widget.itemData!['start_time']))
         : 'N/A';
     final endTime = widget.itemData?['end_time'] != null
-        ? DateFormat.yMd()
-            .add_jm()
-            .format(DateTime.parse(widget.itemData!['end_time']))
+        ? DateFormat.yMd().add_jm().format(DateTime.parse(widget.itemData!['end_time']))
         : 'N/A';
 
     return Scaffold(
@@ -361,8 +453,7 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
                   ),
                 ),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
                       color: Colors.yellow.withOpacity(0.2),
                       borderRadius: BorderRadius.circular(20),
@@ -392,6 +483,14 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
                   Text(
                     '$_registeredUsersCount users registered',
                     style: const TextStyle(color: Colors.white),
+                  ),
+                  const Spacer(),
+                  Text(
+                    _timeRemaining,
+                    style: TextStyle(
+                      color: _auctionEnded ? Colors.red : Colors.yellow,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ],
               ),
@@ -474,263 +573,39 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
                 style: const TextStyle(color: Colors.white, fontSize: 16),
               ),
             ),
-            const SizedBox(height: 30),
+            const SizedBox(height: 10),
+            ElevatedButton.icon(
+              icon: const Icon(Icons.calculate, color: Colors.black),
+              label: const Text(
+                "PREDICT MARKET PRICE",
+                style: TextStyle(
+                  color: Colors.black,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.yellow,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                minimumSize: const Size(double.infinity, 50),
+              ),
+              onPressed: _navigateToPredictScreen,
+            ),
+            const SizedBox(height: 10),
             if (_auctionNotStarted)
               _buildAuctionNotStartedUI()
             else if (!_auctionEnded)
               if (!isRegistered)
                 _buildRegistrationRequiredUI()
               else
-                _buildBiddingUI()
+                _buildActiveAuctionUI()
             else
               _buildAuctionEndedUI(),
           ],
         ),
       ),
     );
-  }
-
-  Widget _buildDetailRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 150,
-            child: Text(
-              label,
-              style: const TextStyle(
-                color: Colors.grey,
-                fontSize: 16,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(color: Colors.white, fontSize: 16),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAuctionNotStartedUI() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.grey[900],
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        children: [
-          Text(
-            "Auction starts on ${widget.itemData?['start_time'] ?? 'N/A'}",
-            style: const TextStyle(
-              color: Colors.yellow,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: isRegistered ? null : _register,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: isRegistered ? Colors.grey : Colors.yellow,
-              foregroundColor: Colors.black,
-              minimumSize: const Size(double.infinity, 50),
-            ),
-            child: Text(
-              isRegistered ? 'Registered' : 'Register for Auction',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRegistrationRequiredUI() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.grey[900],
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        children: [
-          const Text(
-            'You must register before you can bid',
-            style: TextStyle(color: Colors.white, fontSize: 16),
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: _register,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.yellow,
-              foregroundColor: Colors.black,
-              minimumSize: const Size(double.infinity, 50),
-            ),
-            child: const Text(
-              'Register Now',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBiddingUI() {
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _bidController,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  filled: true,
-                  fillColor: Colors.grey[900],
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide.none,
-                  ),
-                  hintText: "Enter bid amount",
-                  hintStyle: const TextStyle(color: Colors.white70),
-                  prefixText: "PKR ",
-                  prefixStyle: const TextStyle(color: Colors.yellow),
-                ),
-                style: const TextStyle(color: Colors.white),
-              ),
-            ),
-            const SizedBox(width: 10),
-            IconButton(
-              icon: const Icon(Icons.add, color: Colors.yellow),
-              onPressed: () {
-                final current = double.tryParse(_bidController.text) ?? 0;
-                _bidController.text = (current + 1000).toStringAsFixed(0);
-              },
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-        ElevatedButton(
-          onPressed: _isPlacingBid ? null : _placeBid,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.yellow,
-            foregroundColor: Colors.black,
-            minimumSize: const Size(double.infinity, 50),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-          child: _isPlacingBid
-              ? const CircularProgressIndicator(color: Colors.black)
-              : const Text(
-                  'Place Bid',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                  ),
-                ),
-        ),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.live_tv, color: Colors.black),
-                label: const Text(
-                  "LIVE BIDDING",
-                  style: TextStyle(
-                    color: Colors.black,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.amber,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-                onPressed: _navigateToLiveBidding,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.analytics, color: Colors.white),
-                label: const Text(
-                  "BID RESULTS",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.grey[800],
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-                onPressed: _navigateToWinnerScreen,
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildAuctionEndedUI() {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.grey[900],
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: const Center(
-            child: Text(
-              "Auction has ended",
-              style: TextStyle(
-                color: Colors.yellow,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 10),
-        ElevatedButton(
-          onPressed: _navigateToWinnerScreen,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.yellow,
-            foregroundColor: Colors.black,
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          ),
-          child: const Text(
-            'View Results',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-        ),
-      ],
-    );
-  }
-
-  @override
-  void dispose() {
-    _bidController.dispose();
-    _registrationCountSub?.cancel();
-    _auctionTimer?.cancel();
-    auctionService.dispose();
-    super.dispose();
   }
 }

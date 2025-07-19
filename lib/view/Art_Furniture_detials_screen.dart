@@ -3,9 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import '../services/auction_services.dart';
-import '../services/notification_services.dart';
+import '../services/auction_notification_services.dart';
 import 'bidwinscreen.dart';
 import 'Live_Biding.dart';
+import 'gemini sug.dart';
 
 class ArtFurnitureDetailsScreen extends StatefulWidget {
   final String imageUrl;
@@ -27,12 +28,9 @@ class ArtFurnitureDetailsScreen extends StatefulWidget {
 }
 
 class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
-  final NotificationService _notificationService = NotificationService();
+  final AuctionNotificationServices _notificationService = AuctionNotificationServices();
   late final AuctionService _auctionService;
-  final TextEditingController _bidController = TextEditingController();
-  // State variables
   double _currentBid = 0;
-  bool _isPlacingBid = false;
   bool _auctionEnded = false;
   bool _auctionNotStarted = false;
   bool _isRegistered = false;
@@ -56,7 +54,6 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
     _setupRealTimeUpdates();
     _checkRegistrationStatus();
     _setupRegistrationListener();
-    _startAuctionTimer();
   }
 
   void _updateAuctionStatus() {
@@ -77,24 +74,21 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
     }
   }
 
-  void _startAuctionTimer() {
-    _auctionTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
-      if (mounted) {
-        _updateAuctionStatus();
-      }
-    });
-  }
-
   void _setupRealTimeUpdates() {
     if (widget.itemData?['id'] == null) return;
 
-    _auctionService
-        .getBidsForAuction(
-      widget.itemData!['id'],
-      widget.isArt ? 'art' : 'furniture',
-    )
-        .listen((bids) {
-      if (bids.isNotEmpty && mounted) {
+    // Fetch bids every second
+    _auctionTimer?.cancel(); // Cancel previous timer if exists
+    _auctionTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
+      if (!mounted) return;
+
+      // 1. Fetch latest bids
+      final bids = await _auctionService.getBidsForAuction(
+        widget.itemData!['id'],
+        widget.isArt ? 'art' : 'furniture',
+      ).first;
+
+      if (bids.isNotEmpty) {
         final newBid = (bids.first['amount'] as num).toDouble();
         if (newBid != _currentBid) {
           setState(() {
@@ -103,15 +97,14 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
           });
         }
       }
-    });
 
-    _auctionService
-        .getAuctionById(
-      widget.itemData!['id'],
-      widget.isArt ? 'art' : 'furniture',
-    )
-        .listen((auction) {
-      if (auction != null && mounted) {
+      // 2. Fetch latest auction status
+      final auction = await _auctionService.getAuctionById(
+        widget.itemData!['id'],
+        widget.isArt ? 'art' : 'furniture',
+      ).first;
+
+      if (auction != null) {
         final startTime = DateTime.tryParse(auction['start_time'] ?? '');
         final endTime = DateTime.tryParse(auction['end_time'] ?? '');
         final now = DateTime.now();
@@ -145,7 +138,6 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
 
   void _setupRegistrationListener() {
     if (widget.itemData?['id'] == null) return;
-
     _registrationCountSub = _auctionService
         .getRegistrationCount(
       widget.itemData!['id'],
@@ -183,8 +175,7 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
         if (mounted) {
           setState(() => _isRegistered = true);
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-                content: Text('Already registered for this auction!')),
+            const SnackBar(content: Text('Already registered for this auction!')),
           );
         }
         return;
@@ -210,94 +201,33 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) =>
-            BidWinScreen(
-              imageUrl: widget.imageUrl,
-              itemTitle: widget.title,
-              itemId: widget.itemData!['id'],
-              itemType: widget.isArt ? 'art' : 'furniture',
-              supabase: Supabase.instance.client,
-              auctionService: _auctionService,
-              notificationService: _notificationService,
-            ),
+        builder: (context) => BidWinScreen(
+          imageUrl: widget.imageUrl,
+          itemTitle: widget.title,
+          itemId: widget.itemData!['id'],
+          itemType: widget.isArt ? 'art' : 'furniture',
+          supabase: Supabase.instance.client,
+          auctionService: _auctionService,
+          notificationService: _notificationService,
+        ),
       ),
     );
-  }
-
-  Future<void> _placeBid() async {
-    final bidAmount = double.tryParse(_bidController.text);
-    if (bidAmount == null || bidAmount <= _currentBid) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Bid must be higher than ${_currentBid.toStringAsFixed(0)} PKR',
-          ),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    setState(() => _isPlacingBid = true);
-    try {
-      await _auctionService.placeBid(
-        itemId: widget.itemData?['id'],
-        itemType: widget.isArt ? 'art' : 'furniture',
-        amount: bidAmount,
-      );
-
-      final registrations = await Supabase.instance.client
-          .from('auction_registrations')
-          .select('user_id')
-          .eq('item_id', widget.itemData?['id'])
-          .neq('user_id', Supabase.instance.client.auth.currentUser?.id ?? '');
-
-      for (final reg in registrations) {
-            await _notificationService.sendNewBidNotification(
-              userId: reg['user_id'],
-              itemId: widget.itemData?['id'] ?? '',
-              itemType: widget.isArt ? 'art' : 'furniture',
-              itemTitle: widget.title,
-              amount: bidAmount.toStringAsFixed(0),
-            );
-      }
-
-      _bidController.clear();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Bid placed successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error placing bid: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      debugPrint('Error placing bid: ${e.toString()}');
-    } finally {
-      setState(() => _isPlacingBid = false);
-    }
   }
 
   void _navigateToLiveBidding() {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) =>
-            LiveBidscreen(
-              itemId: widget.itemData?['id'] ?? '',
-              itemType: widget.isArt ? 'art' : 'furniture',
-              itemTitle: widget.title,
-              imageUrl: widget.imageUrl,
-            ),
+        builder: (context) => LiveBidscreen(
+          itemId: widget.itemData?['id'] ?? '',
+          itemType: widget.isArt ? 'art' : 'furniture',
+          itemTitle: widget.title,
+          imageUrl: widget.imageUrl,
+        ),
       ),
     );
   }
 
-  @override
   @override
   Widget build(BuildContext context) {
     if (widget.itemData == null) {
@@ -319,9 +249,6 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
             : 'High-quality furniture piece, perfect for any home.');
 
     final artist = widget.isArt ? (widget.itemData?['artist'] ?? 'Unknown Artist') : null;
-    final medium = widget.isArt ? (widget.itemData?['medium'] ?? 'Mixed Media') : null;
-    final dimensions = widget.isArt ? (widget.itemData?['dimensions'] ?? 'N/A') : null;
-
     final material = !widget.isArt ? (widget.itemData?['material'] ?? 'Wood') : null;
     final condition = !widget.isArt ? (widget.itemData?['condition'] ?? 'New') : null;
 
@@ -457,15 +384,10 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: widget.isArt
-                    ? [
-                  _buildDetailRow('Artist:', artist ?? 'Unknown'),
-                  _buildDetailRow('Medium:', medium ?? 'N/A'),
-                  _buildDetailRow('Dimensions:', dimensions ?? 'N/A'),
-                ]
-                    : [
-                  _buildDetailRow('Material:', material ?? 'N/A'),
-                  _buildDetailRow('Condition:', condition ?? 'N/A'),
+                children: [
+                  if (widget.isArt) _buildDetailRow('Artist:', artist ?? 'Unknown'),
+                  _buildDetailRow('Material:', material ?? widget.itemData?['material'] ?? 'N/A'),
+                  _buildDetailRow('Condition:', condition ?? widget.itemData?['condition'] ?? 'N/A'),
                 ],
               ),
             ),
@@ -494,14 +416,45 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
                 ],
               ),
             ),
-            const SizedBox(height: 30),
+            const SizedBox(height: 10),
+            Center(
+              child: SizedBox(
+                width: 250,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => GeminiInsightsScreen(
+                          imageUrl: widget.imageUrl,
+                          title: widget.title,
+                          isArt: widget.isArt,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.lightbulb_outline, color: Colors.black),
+                  label: const Text(
+                    'AI Suggestions',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.yellow,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
             if (_auctionNotStarted)
               _buildAuctionNotStartedUI()
             else if (!_auctionEnded)
               if (!_isRegistered)
                 _buildRegistrationRequiredUI()
               else
-                _buildBiddingUI()
+                _buildActiveAuctionUI()
             else
               _buildAuctionEndedUI(),
           ],
@@ -509,6 +462,7 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
       ),
     );
   }
+
   Widget _buildDetailRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -602,69 +556,17 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
     );
   }
 
-  Widget _buildBiddingUI() {
+  Widget _buildActiveAuctionUI() {
     return Column(
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _bidController,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  filled: true,
-                  fillColor: Colors.grey[900],
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide.none,
-                  ),
-                  hintText: "Enter bid amount",
-                  hintStyle: const TextStyle(color: Colors.white70),
-                  prefixText: "PKR ",
-                  prefixStyle: const TextStyle(color: Colors.yellow),
-                ),
-                style: const TextStyle(color: Colors.white),
-              ),
-            ),
-            const SizedBox(width: 10),
-            IconButton(
-              icon: const Icon(Icons.add, color: Colors.yellow),
-              onPressed: () {
-                final current = double.tryParse(_bidController.text) ?? 0;
-                _bidController.text = (current + 1000).toStringAsFixed(0);
-              },
-            ),
-          ],
-        ),
         const SizedBox(height: 20),
-        ElevatedButton(
-          onPressed: _isPlacingBid ? null : _placeBid,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.yellow,
-            foregroundColor: Colors.black,
-            minimumSize: const Size(double.infinity, 50),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-          child: _isPlacingBid
-              ? const CircularProgressIndicator(color: Colors.black)
-              : const Text(
-            'Place Bid',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 18,
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
         Row(
           children: [
             Expanded(
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.live_tv, color: Colors.black),
                 label: const Text(
-                  "LIVE BIDDING",
+                  "GO TO LIVE BIDDING",
                   style: TextStyle(
                     color: Colors.black,
                     fontWeight: FontWeight.bold,
@@ -678,27 +580,6 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
                 onPressed: _navigateToLiveBidding,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.analytics, color: Colors.white),
-                label: const Text(
-                  "BID RESULTS",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.grey[800],
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-                onPressed: _navigateToWinnerScreen,
               ),
             ),
           ],
@@ -746,7 +627,6 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
 
   @override
   void dispose() {
-    _bidController.dispose();
     _registrationCountSub?.cancel();
     _auctionTimer?.cancel();
     _auctionService.dispose();
