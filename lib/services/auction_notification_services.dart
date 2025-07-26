@@ -1,115 +1,254 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:http/http.dart' as http;
 
+import 'emailservices.dart';
+
 class AuctionNotificationServices {
   static final AuctionNotificationServices _instance = AuctionNotificationServices._internal();
   factory AuctionNotificationServices() => _instance;
 
-  SupabaseClient? _supabase;
-  final String _oneSignalAppId = '948ea4ee-8e9f-417c-acce-871c020d315a';
-  final String _oneSignalRestApiKey = 'os_v2_app_sshkj3uot5axzlgoq4oaedjrljm2mlzmk64uyavcaao534vkzibq37i6cxmvrzr27mxko2w6p7os7yi4ojbr3eml2z55rd7nvijrojq';
+  // OneSignal Configuration
+  static const String _oneSignalAppId = '404425ef-e1e2-45ca-afd1-a6374737c863';
+  static const String _oneSignalRestApiKey = 'os_v2_app_ibccl37b4jc4vl6ruy3uon6imm5t2c2gqwkumkm2mavefb4gbaqkucjlj7edged7cudg46tnsdrqxymramgtp5j55tunztb3tla7qga';
+
+  SupabaseClient? _supabaseClient;
   RealtimeChannel? _notificationChannel;
   bool _isInitialized = false;
 
   AuctionNotificationServices._internal();
 
   SupabaseClient get supabase {
-    if (_supabase == null) {
-      throw Exception('AuctionNotificationServices not initialized with Supabase client');
+    if (_supabaseClient == null) {
+      throw Exception('NotificationService not initialized with Supabase client');
     }
-    return _supabase!;
+    return _supabaseClient!;
   }
 
-  void initializeWithSupabase(SupabaseClient supabase) {
-    if (_supabase == null) {
-      _supabase = supabase;
-      if (kDebugMode) print('AuctionNotificationServices initialized with Supabase client');
+  void initializeWithSupabase(SupabaseClient supabaseClient) {
+    if (_supabaseClient != null) {
+      if (kDebugMode) {
+        debugPrint('NotificationService already initialized with Supabase client');
+      }
+      return;
+    }
+    _supabaseClient = supabaseClient;
+    if (kDebugMode) {
+      debugPrint('NotificationService initialized with Supabase client');
     }
   }
 
   Future<void> initialize(String userId) async {
     if (_isInitialized) {
-      if (kDebugMode) print('AuctionNotificationServices already initialized for user $userId');
+      if (kDebugMode) {
+        debugPrint('NotificationService already initialized for user $userId');
+      }
       return;
     }
 
+    if (_supabaseClient == null) {
+      throw Exception('Supabase client not initialized. Call initializeWithSupabase first.');
+    }
+
     try {
-      if (kDebugMode) print('Initializing AuctionNotificationServices for user $userId');
+      if (kDebugMode) {
+        debugPrint('Initializing NotificationService for user $userId');
+      }
 
-      // Link OneSignal user with your app's user ID
-      await OneSignal.login(userId);
-      if (kDebugMode) print('OneSignal user logged in with ID: $userId');
+      // OneSignal Setup
+      OneSignal.Debug.setLogLevel(kDebugMode ? OSLogLevel.verbose : OSLogLevel.none);
+      OneSignal.initialize(_oneSignalAppId);
+      await OneSignal.Notifications.requestPermission(true).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () => throw Exception('OneSignal initialization timed out'),
+      );
 
-      // Store Player ID with retries and better error handling
+      // Store Player ID with user validation
       await _storePlayerId(userId);
 
       // Realtime Channel Setup
       _setupNotificationChannel(userId);
 
       _isInitialized = true;
-      if (kDebugMode) print('AuctionNotificationServices initialized successfully for user $userId');
+      if (kDebugMode) {
+        debugPrint('NotificationService initialized successfully for user $userId');
+      }
     } catch (e) {
-      if (kDebugMode) print('Initialization error for user $userId: $e');
-      rethrow; // Re-throw to handle in calling code
+      if (kDebugMode) {
+        debugPrint('Initialization error for user $userId: $e');
+      }
+      // Don't rethrow - let the app continue running
+      // Just log the error for debugging
+      debugPrint('NotificationService initialization failed but app will continue: $e');
+    }
+  }
+
+  Future<bool> _verifyUserExists(String userId) async {
+    try {
+      final response = await supabase
+          .from('users')
+          .select('id')
+          .eq('id', userId)
+          .maybeSingle();
+
+      return response != null;
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error verifying user existence: $e');
+      }
+      return false;
+    }
+  }
+
+  Future<void> _ensureUserExists(String userId) async {
+    try {
+      final userExists = await _verifyUserExists(userId);
+      if (!userExists) {
+        if (kDebugMode) {
+          debugPrint('User $userId does not exist in users table. Creating user record...');
+        }
+
+        // Get current authenticated user data
+        final currentUser = supabase.auth.currentUser;
+        if (currentUser == null) {
+          throw Exception('No authenticated user found');
+        }
+
+        // Create user record with available data
+        await supabase.from('users').insert({
+          'id': userId,
+          'email': currentUser.email ?? '',
+          'full_name': currentUser.userMetadata?['full_name'] ?? currentUser.userMetadata?['name'] ?? '',
+          'created_at': DateTime.now().toIso8601String(),
+          'updated_at': DateTime.now().toIso8601String(),
+        });
+
+        if (kDebugMode) {
+          debugPrint('Successfully created user record for $userId');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error ensuring user exists: $e');
+      }
+      rethrow;
     }
   }
 
   Future<void> _storePlayerId(String userId) async {
     try {
-      if (kDebugMode) print('Storing player ID for user $userId');
+      if (kDebugMode) {
+        debugPrint('Storing player ID for user $userId');
+      }
+
+      // First ensure the user exists in the users table
+      await _ensureUserExists(userId);
+
       String? playerId;
-      int retries = 5; // Increased retries
+      const maxRetries = 5;
+      const retryDelay = Duration(seconds: 2);
+      int retries = maxRetries;
 
-      // Wait for OneSignal to be fully ready
+      // Try to get player ID with retries
       while (retries > 0 && (playerId == null || playerId.isEmpty)) {
-        // Check if user is subscribed first
-        final isSubscribed = await OneSignal.User.pushSubscription.optedIn;
-        if (!isSubscribed!) {
-          if (kDebugMode) print('User not subscribed to push notifications');
-          await OneSignal.Notifications.requestPermission(true);
-        }
-
         playerId = OneSignal.User.pushSubscription.id;
         if (playerId == null || playerId.isEmpty) {
-          if (kDebugMode) print('Player ID not available for user $userId, retrying... ($retries)');
-          await Future.delayed(Duration(seconds: 2)); // Increased delay
+          if (kDebugMode) {
+            debugPrint('Player ID not available yet, retrying in ${retryDelay.inSeconds} seconds... ($retries retries left)');
+          }
+          await Future.delayed(retryDelay);
           retries--;
-        } else {
-          if (kDebugMode) print('Player ID retrieved: $playerId');
         }
       }
 
       if (playerId != null && playerId.isNotEmpty) {
+        // Use upsert to handle existing records gracefully
         await supabase.from('user_devices').upsert({
           'user_id': userId,
           'player_id': playerId,
           'updated_at': DateTime.now().toIso8601String(),
         }, onConflict: 'user_id');
 
-        if (kDebugMode) print('✔ Player ID $playerId stored for user $userId');
-
-        // Verify the storage
-        final stored = await supabase
-            .from('user_devices')
-            .select('player_id')
-            .eq('user_id', userId)
-            .single();
-        if (kDebugMode) print('✔ Verified stored player ID: ${stored['player_id']}');
+        if (kDebugMode) {
+          debugPrint('Successfully stored player ID for user $userId');
+        }
       } else {
-        throw Exception('Failed to retrieve player ID for user $userId after $retries retries');
+        // Don't throw exception, just log the warning
+        if (kDebugMode) {
+          debugPrint('Warning: Failed to retrieve valid player ID for user $userId after $maxRetries attempts');
+        }
+        // Store a placeholder that can be updated later
+        await supabase.from('user_devices').upsert({
+          'user_id': userId,
+          'player_id': 'pending_${DateTime.now().millisecondsSinceEpoch}',
+          'device_type': 'mobile',
+          'platform': defaultTargetPlatform.name.toLowerCase(),
+          'updated_at': DateTime.now().toIso8601String(),
+        }, onConflict: 'user_id');
       }
     } catch (e) {
-      if (kDebugMode) print('❌ Error storing player ID for user $userId: $e');
-      rethrow;
+      if (kDebugMode) {
+        debugPrint('Error storing player ID for user $userId: $e');
+      }
+
+      // Handle specific foreign key constraint error
+      if (e is PostgrestException && e.code == '23503') {
+        if (kDebugMode) {
+          debugPrint('Foreign key constraint violation - this usually means the user does not exist in the users table');
+        }
+        // Try one more time to create the user
+        try {
+          await _ensureUserExists(userId);
+          // Recursive call - but only once to avoid infinite loop
+          if (kDebugMode) {
+            debugPrint('Retrying player ID storage after creating user record...');
+          }
+          return; // Don't retry storing player ID to avoid infinite recursion
+        } catch (retryError) {
+          if (kDebugMode) {
+            debugPrint('Failed to create user and store player ID: $retryError');
+          }
+        }
+      }
+
+      // Don't rethrow - allow app to continue functioning
+      if (kDebugMode) {
+        debugPrint('Player ID storage failed but app will continue: $e');
+      }
+    }
+  }
+
+  // Add method to retry storing player ID later
+  Future<void> retryStorePlayerId(String userId) async {
+    try {
+      final playerId = OneSignal.User.pushSubscription.id;
+      if (playerId != null && playerId.isNotEmpty) {
+        await supabase.from('user_devices').upsert({
+          'user_id': userId,
+          'player_id': playerId,
+          'device_type': 'mobile',
+          'platform': defaultTargetPlatform.name.toLowerCase(),
+          'updated_at': DateTime.now().toIso8601String(),
+        }, onConflict: 'user_id');
+
+        if (kDebugMode) {
+          debugPrint('Successfully updated player ID for user $userId');
+        }
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Retry store player ID failed: $e');
+      }
     }
   }
 
   void _setupNotificationChannel(String userId) {
+    if (_notificationChannel != null) return;
+
     try {
-      if (kDebugMode) print('Setting up notification channel for user $userId');
       _notificationChannel = supabase.channel('user_notifications_$userId')
         ..onPostgresChanges(
           event: PostgresChangeEvent.insert,
@@ -121,42 +260,17 @@ class AuctionNotificationServices {
             value: userId,
           ),
           callback: (payload) {
-            if (kDebugMode) print('Received notification for user $userId: $payload');
-            _handleNotification(payload as Map<String, dynamic>);
+            final data = payload.newRecord;
+            if (data is Map<String, dynamic>) {
+              _handleNotification(data);
+            }
           },
-        ).subscribe();
-      if (kDebugMode) print('✔ Subscribed to notification channel for user $userId');
+        )
+        ..subscribe();
     } catch (e) {
-      if (kDebugMode) print('❌ Error setting up notification channel: $e');
-    }
-  }
-
-  // Test method to send a simple notification to all users
-  Future<void> sendTestNotification() async {
-    try {
-      if (kDebugMode) print('Sending test notification to all users');
-
-      // Get all player IDs
-      final allUsers = await supabase.from('user_devices').select('player_id');
-      final playerIds = allUsers.map((e) => e['player_id'] as String).toList();
-
-      if (playerIds.isEmpty) {
-        if (kDebugMode) print('❌ No player IDs found for test notification');
-        return;
+      if (kDebugMode) {
+        debugPrint('Error setting up notification channel: $e');
       }
-
-      if (kDebugMode) print('📱 Sending to ${playerIds.length} devices: $playerIds');
-
-      await _sendBatchNotifications(
-        playerIds: playerIds,
-        heading: 'Test Notification',
-        content: 'This is a test notification from your auction app!',
-        additionalData: {'type': 'test'},
-      );
-
-      if (kDebugMode) print('✔ Test notification sent successfully');
-    } catch (e) {
-      if (kDebugMode) print('❌ Error sending test notification: $e');
     }
   }
 
@@ -166,15 +280,20 @@ class AuctionNotificationServices {
     required String itemTitle,
     required DateTime startTime,
   }) async {
-    if (kDebugMode) print('🔥 Triggering auction start notification for $itemId ($itemType)');
-    await _sendAuctionNotificationToRegisteredUsers(
-      itemId: itemId,
-      itemType: itemType,
-      title: 'Auction Started! 🔥',
-      body: 'Bidding is now open for $itemTitle. Don\'t miss out!',
-      type: 'auction_start',
-      itemTitle: itemTitle,
-    );
+    try {
+      await _sendAuctionNotificationToRegisteredUsers(
+        itemId: itemId,
+        itemType: itemType,
+        title: 'Auction Started',
+        body: 'Bidding is now open for $itemTitle',
+        type: 'auction_start',
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error sending auction start notification: $e');
+      }
+      // Don't rethrow for non-critical notifications
+    }
   }
 
   Future<void> sendAuctionEndNotification({
@@ -183,15 +302,20 @@ class AuctionNotificationServices {
     required String itemTitle,
     required DateTime endTime,
   }) async {
-    if (kDebugMode) print('⏰ Triggering auction end notification for $itemId ($itemType)');
-    await _sendAuctionNotificationToRegisteredUsers(
-      itemId: itemId,
-      itemType: itemType,
-      title: 'Auction Ended ⏰',
-      body: 'Bidding is now closed for $itemTitle. Check if you won!',
-      type: 'auction_end',
-      itemTitle: itemTitle,
-    );
+    try {
+      await _sendAuctionNotificationToRegisteredUsers(
+        itemId: itemId,
+        itemType: itemType,
+        title: 'Auction Ended',
+        body: 'Bidding is now closed for $itemTitle',
+        type: 'auction_end',
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error sending auction end notification: $e');
+      }
+      // Don't rethrow for non-critical notifications
+    }
   }
 
   Future<void> sendNewBidNotification({
@@ -201,19 +325,23 @@ class AuctionNotificationServices {
     required String itemTitle,
     required String amount,
   }) async {
-    if (kDebugMode) print('💰 Triggering new bid notification for user $userId on $itemId ($itemType)');
-    await _sendNotification(
-      userId: userId,
-      title: 'New Bid Alert! 💰',
-      body: 'Someone bid $amount PKR on $itemTitle. Will you bid higher?',
-      data: {
-        'item_id': itemId,
-        'item_type': itemType,
-        'item_title': itemTitle,
-        'type': 'new_bid',
-        'amount': amount,
-      },
-    );
+    try {
+      await _sendNotification(
+        userId: userId,
+        title: 'New Bid Placed',
+        body: 'A new bid of $amount has been placed on $itemTitle',
+        data: {
+          'item_id': itemId,
+          'item_type': itemType,
+          'type': 'new_bid',
+        },
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error sending new bid notification: $e');
+      }
+      // Don't rethrow for non-critical notifications
+    }
   }
 
   Future<void> sendWinnerNotification({
@@ -224,20 +352,82 @@ class AuctionNotificationServices {
     required String amount,
     required String winnerName,
   }) async {
-    if (kDebugMode) print('🏆 Triggering winner notification for user $userId on $itemId ($itemType)');
-    await _sendNotification(
-      userId: userId,
-      title: 'Congratulations! You Won! 🏆',
-      body: 'You won $itemTitle for $amount PKR! Contact seller for pickup details.',
-      data: {
-        'item_id': itemId,
-        'item_type': itemType,
-        'item_title': itemTitle,
-        'type': 'auction_won',
-        'winner_name': winnerName,
-        'amount': amount,
-      },
-    );
+    try {
+      // First send push notification
+      await _sendNotification(
+        userId: userId,
+        title: 'Auction Won!',
+        body: 'Congratulations! You won $itemTitle for $amount',
+        data: {
+          'item_id': itemId,
+          'item_type': itemType,
+          'type': 'auction_won',
+          'winner_name': winnerName,
+        },
+      );
+
+      // Then fetch email and send email notification
+      await _fetchAndSendWinnerEmail(
+        userId: userId,
+        winnerName: winnerName,
+        itemTitle: itemTitle,
+        amount: amount,
+        itemId: itemId,
+        itemType: itemType,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error sending winner notification: $e');
+      }
+      // Don't rethrow for critical notifications like winner notifications
+    }
+  }
+
+  Future<void> _fetchAndSendWinnerEmail({
+    required String userId,
+    required String winnerName,
+    required String itemTitle,
+    required String amount,
+    required String itemId,
+    required String itemType,
+  }) async {
+    try {
+      final response = await supabase
+          .from('users')
+          .select('email')
+          .eq('id', userId)
+          .maybeSingle(); // Use maybeSingle instead of single
+
+      if (response == null) {
+        if (kDebugMode) {
+          debugPrint('User $userId not found in users table');
+        }
+        return;
+      }
+
+      final winnerEmail = response['email'] as String?;
+
+      if (winnerEmail == null || winnerEmail.isEmpty) {
+        if (kDebugMode) {
+          debugPrint('No email found for user $userId, skipping email notification');
+        }
+        return;
+      }
+
+      await EmailService().sendWinnerEmail(
+        winnerEmail: winnerEmail,
+        winnerName: winnerName,
+        itemTitle: itemTitle,
+        amount: amount,
+        itemId: itemId,
+        itemType: itemType,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Error fetching user email or sending winner email: $e');
+      }
+      // Don't rethrow - email is not critical for app functionality
+    }
   }
 
   Future<void> _sendAuctionNotificationToRegisteredUsers({
@@ -246,47 +436,32 @@ class AuctionNotificationServices {
     required String title,
     required String body,
     required String type,
-    required String itemTitle,
   }) async {
     try {
-      if (kDebugMode) print('📢 Sending auction notification for $itemId ($itemType): $title');
-
       final registrations = await supabase
           .from('auction_registrations')
           .select('user_id')
           .eq('item_id', itemId)
           .eq('item_type', itemType);
 
-      if (kDebugMode) print('👥 Found ${registrations.length} registered users for $itemId ($itemType)');
-
-      if (registrations.isEmpty) {
-        if (kDebugMode) print('⚠️ No registered users for $itemId ($itemType), skipping notification');
-        return;
-      }
+      if (registrations.isEmpty) return;
 
       final userIds = registrations.map((r) => r['user_id'] as String).toList();
       final playerIds = await _getPlayerIds(userIds);
 
-      if (kDebugMode) print('📱 Retrieved ${playerIds.length} player IDs for $itemId ($itemType): $playerIds');
-
-      if (playerIds.isEmpty) {
-        if (kDebugMode) print('⚠️ No valid player IDs found for registered users');
-        return;
+      if (playerIds.isNotEmpty) {
+        await _sendBatchNotifications(
+          playerIds: playerIds,
+          heading: title,
+          content: body,
+          additionalData: {
+            'item_id': itemId,
+            'item_type': itemType,
+            'type': type,
+          },
+        );
       }
 
-      await _sendBatchNotifications(
-        playerIds: playerIds,
-        heading: title,
-        content: body,
-        additionalData: {
-          'item_id': itemId,
-          'item_type': itemType,
-          'item_title': itemTitle,
-          'type': type,
-        },
-      );
-
-      // Store notifications in database for history
       final notificationData = userIds.map((userId) => {
         'user_id': userId,
         'title': title,
@@ -294,17 +469,17 @@ class AuctionNotificationServices {
         'data': {
           'item_id': itemId,
           'item_type': itemType,
-          'item_title': itemTitle,
           'type': type,
         },
         'created_at': DateTime.now().toIso8601String(),
       }).toList();
 
       await supabase.from('notifications').insert(notificationData);
-      if (kDebugMode) print('✔ Inserted ${notificationData.length} notifications into database');
     } catch (e) {
-      if (kDebugMode) print('❌ Error sending auction notification for $itemId ($itemType): $e');
-      rethrow;
+      if (kDebugMode) {
+        debugPrint('Error sending auction notifications: $e');
+      }
+      // Don't rethrow for notification errors
     }
   }
 
@@ -315,24 +490,16 @@ class AuctionNotificationServices {
     required Map<String, dynamic> data,
   }) async {
     try {
-      if (kDebugMode) print('📨 Sending notification to user $userId: $title');
-
       final playerIds = await _getPlayerIds([userId]);
-      if (kDebugMode) print('📱 Retrieved ${playerIds.length} player IDs for user $userId: $playerIds');
-
-      if (playerIds.isEmpty) {
-        if (kDebugMode) print('⚠️ No player IDs found for user $userId, skipping notification');
-        return;
+      if (playerIds.isNotEmpty) {
+        await _sendBatchNotifications(
+          playerIds: playerIds,
+          heading: title,
+          content: body,
+          additionalData: data,
+        );
       }
 
-      await _sendBatchNotifications(
-        playerIds: playerIds,
-        heading: title,
-        content: body,
-        additionalData: data,
-      );
-
-      // Store in database
       await supabase.from('notifications').insert({
         'user_id': userId,
         'title': title,
@@ -340,36 +507,32 @@ class AuctionNotificationServices {
         'data': data,
         'created_at': DateTime.now().toIso8601String(),
       });
-
-      if (kDebugMode) print('✔ Notification sent and stored for user $userId');
     } catch (e) {
-      if (kDebugMode) print('❌ Error sending notification to user $userId: $e');
-      rethrow;
+      if (kDebugMode) {
+        debugPrint('Error sending notification: $e');
+      }
+      // Don't rethrow for notification errors
     }
   }
 
   Future<List<String>> _getPlayerIds(List<String> userIds) async {
     try {
-      if (kDebugMode) print('🔍 Fetching player IDs for users: $userIds');
-
       final response = await supabase
           .from('user_devices')
-          .select('player_id, user_id')
+          .select('player_id')
           .inFilter('user_id', userIds)
-          .not('player_id', 'is', null);
+          .neq('player_id', '') // Exclude empty player_ids
+          .not('player_id', 'like', 'pending_%'); // Exclude pending player_ids
 
-      if (kDebugMode) print('📱 Found ${response.length} device records: $response');
-
-      final playerIds = response
+      return response
           .map((e) => e['player_id'] as String?)
           .where((id) => id != null && id.isNotEmpty)
           .cast<String>()
           .toList();
-
-      if (kDebugMode) print('✔ Valid player IDs: $playerIds');
-      return playerIds;
     } catch (e) {
-      if (kDebugMode) print('❌ Error getting player IDs for users $userIds: $e');
+      if (kDebugMode) {
+        debugPrint('Error getting player IDs: $e');
+      }
       return [];
     }
   }
@@ -380,66 +543,46 @@ class AuctionNotificationServices {
     required String content,
     required Map<String, dynamic> additionalData,
   }) async {
-    if (playerIds.isEmpty) {
-      if (kDebugMode) print('⚠️ No player IDs provided, skipping batch notification');
-      return;
-    }
+    if (playerIds.isEmpty) return;
 
     try {
-      if (kDebugMode) print('🚀 Sending batch notification to ${playerIds.length} devices: $heading');
-
-      final payload = {
-        'app_id': _oneSignalAppId,
-        'include_player_ids': playerIds,
-        'headings': {'en': heading},
-        'contents': {'en': content},
-        'data': additionalData,
-        'android_accent_color': 'FF9C27B0',
-        'small_icon': 'ic_notification',
-        'large_icon': 'ic_launcher',
-        'priority': 10, // High priority
-        'ttl': 259200, // 3 days
-      };
-
-      if (kDebugMode) print('📤 Payload: ${jsonEncode(payload)}');
-
       final response = await http.post(
         Uri.parse('https://onesignal.com/api/v1/notifications'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Basic $_oneSignalRestApiKey',
         },
-        body: jsonEncode(payload),
+        body: jsonEncode({
+          'app_id': _oneSignalAppId,
+          'include_player_ids': playerIds,
+          'headings': {'en': heading},
+          'contents': {'en': content},
+          'data': additionalData,
+        }),
       );
 
-      final responseBody = jsonDecode(response.body);
-      if (kDebugMode) print('📥 OneSignal response (${response.statusCode}): $responseBody');
-
-      if (response.statusCode == 200) {
-        if (kDebugMode) print('✔ Batch notification sent successfully to ${playerIds.length} devices');
-        if (kDebugMode) print('📊 Recipients: ${responseBody['recipients'] ?? 'unknown'}');
-      } else {
-        throw Exception('OneSignal API error (${response.statusCode}): ${responseBody['errors'] ?? responseBody}');
+      if (response.statusCode != 200) {
+        throw Exception('Failed to send notification: ${response.body}');
       }
     } catch (e) {
-      if (kDebugMode) print('❌ Error sending batch notifications: $e');
-      rethrow;
+      if (kDebugMode) {
+        debugPrint('Error sending batch notifications: $e');
+      }
+      // Don't rethrow for notification errors
     }
   }
 
   void _handleNotification(Map<String, dynamic> payload) {
-    final notification = payload['new'] as Map<String, dynamic>?;
-    if (notification == null) {
-      if (kDebugMode) print('⚠️ No new notification data in payload');
-      return;
+    if (kDebugMode) {
+      debugPrint('Received notification: $payload');
     }
-    if (kDebugMode) print('🔔 Handling in-app notification: $notification');
-    // Handle in-app notification display here
+    // Implement your in-app notification display logic here
   }
 
   void dispose() {
-    if (kDebugMode) print('🧹 Disposing AuctionNotificationServices');
     _notificationChannel?.unsubscribe();
+    _notificationChannel = null;
     _isInitialized = false;
+    _supabaseClient = null;
   }
 }

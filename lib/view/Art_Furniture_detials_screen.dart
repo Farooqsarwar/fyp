@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
+import '../main.dart';
 import '../services/auction_services.dart';
 import '../services/auction_notification_services.dart';
 import 'bidwinscreen.dart';
@@ -36,6 +37,7 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
   bool _isRegistered = false;
   int _registeredUsersCount = 0;
   String? _highestBidderId;
+  String? _currentBidId;
 
   // Stream subscriptions
   StreamSubscription<int>? _registrationCountSub;
@@ -94,6 +96,7 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
           setState(() {
             _currentBid = newBid;
             _highestBidderId = bids.first['user_id'] as String?;
+            _currentBidId = bids.first['id'] as String?;
           });
         }
       }
@@ -197,7 +200,139 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
     }
   }
 
-  Future<void> _navigateToWinnerScreen() async {
+// Add this to your UI after successful bid reporting
+  Future<void> _reportCurrentBid() async {
+    if (_currentBidId == null) return;
+
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You must be logged in to report bids')),
+      );
+      return;
+    }
+
+    try {
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return const AlertDialog(
+            backgroundColor: Colors.black,
+            content: Row(
+              children: [
+                CircularProgressIndicator(color: Colors.yellow),
+                SizedBox(width: 20),
+                Text('Processing report...', style: TextStyle(color: Colors.white)),
+              ],
+            ),
+          );
+        },
+      );
+
+      await _auctionService.reportBid(
+        _currentBidId!,
+        widget.itemData!['id'],
+        widget.isArt ? 'art' : 'furniture',
+      );
+
+      // Force refresh the data after reporting
+      await _forceRefreshAuctionData();
+
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Bid reported successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error reporting bid: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      debugPrint('Error reporting bid: ${e.toString()}');
+    }
+  }
+
+// Add this method to force refresh auction data
+  Future<void> _forceRefreshAuctionData() async {
+    try {
+      // Cancel existing streams
+      _registrationCountSub?.cancel();
+      _auctionTimer?.cancel();
+
+      // Wait a moment for the database to update
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // Fetch fresh auction data
+      final freshAuction = await _auctionService.getAuctionById(
+        widget.itemData!['id'],
+        widget.isArt ? 'art' : 'furniture',
+      ).first;
+
+      if (freshAuction == null) {
+        // Auction was deleted
+        if (mounted) {
+          Navigator.pop(context); // Navigate back
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Auction has been removed due to reported bid'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      // Fetch fresh bids
+      final freshBids = await _auctionService.getBidsForAuction(
+        widget.itemData!['id'],
+        widget.isArt ? 'art' : 'furniture',
+      ).first;
+
+      if (mounted) {
+        setState(() {
+          // Update current bid
+          if (freshBids.isNotEmpty) {
+            _currentBid = (freshBids.first['amount'] as num).toDouble();
+            _highestBidderId = freshBids.first['user_id'] as String?;
+            _currentBidId = freshBids.first['id'] as String?;
+          } else {
+            // No bids remaining, reset to starting price
+            _currentBid = double.tryParse(widget.itemData?['price']?.toString() ?? '0') ?? 0;
+            _highestBidderId = null;
+            _currentBidId = null;
+          }
+
+          // Update auction status
+          final startTime = DateTime.tryParse(freshAuction['start_time'] ?? '');
+          final endTime = DateTime.tryParse(freshAuction['end_time'] ?? '');
+          final now = DateTime.now();
+
+          _auctionNotStarted = startTime != null && now.isBefore(startTime);
+          _auctionEnded = endTime != null && now.isAfter(endTime) ||
+              !(freshAuction['is_active'] ?? false);
+        });
+      }
+
+      // Restart real-time updates
+      _setupRealTimeUpdates();
+      _setupRegistrationListener();
+
+      debugPrint('Auction data refreshed successfully');
+    } catch (e) {
+      debugPrint('Error refreshing auction data: $e');
+    }
+  }  Future<void> _navigateToWinnerScreen() async {
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -325,6 +460,22 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
                 ),
               ],
             ),
+            if (!_auctionEnded && _currentBid > 0)
+              TextButton(
+                onPressed: _reportCurrentBid,
+                style: TextButton.styleFrom(
+                  backgroundColor: Colors.yellow.withOpacity(0.2),
+                  foregroundColor: Colors.red,
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.report, size: 16),
+                    SizedBox(width: 4),
+                    Text('Report this bid'),
+                  ],
+                ),
+              ),
             const SizedBox(height: 16),
             Container(
               padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),

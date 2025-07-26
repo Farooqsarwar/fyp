@@ -175,7 +175,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                       WonAuctionsList(auctionService: auctionService)),
             );
           }),
-          _buildDrawerItem(Icons.info_outline, "About Us", () {}),
+          _buildDrawerItem(Icons.info_outline, "About Us", _showAboutDialog),
           _buildDrawerItem(Icons.exit_to_app, "Logout", _signOut),
         ],
       ),
@@ -208,6 +208,44 @@ class _CustomDrawerState extends State<CustomDrawer> {
           ),
         ],
       ),
+    );
+
+  }
+  void _showAboutDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          backgroundColor: const Color(0xFF1B1B1B), // Off-black background
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                Text(
+                  "About This App",
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.yellow,
+                  ),
+                ),
+                SizedBox(height: 15),
+                Text(
+                  "This is a bidding application for art, cars, and furniture.\n"
+                      "You can explore physical auctions, register and bid for items, and even predict car prices using AI.",
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.white70,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
