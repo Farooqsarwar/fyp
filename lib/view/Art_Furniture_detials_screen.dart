@@ -29,7 +29,8 @@ class ArtFurnitureDetailsScreen extends StatefulWidget {
 }
 
 class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
-  final AuctionNotificationServices _notificationService = AuctionNotificationServices();
+  final AuctionNotificationServices _notificationService =
+      AuctionNotificationServices();
   late final AuctionService _auctionService;
   double _currentBid = 0;
   bool _auctionEnded = false;
@@ -85,10 +86,12 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
       if (!mounted) return;
 
       // 1. Fetch latest bids
-      final bids = await _auctionService.getBidsForAuction(
-        widget.itemData!['id'],
-        widget.isArt ? 'art' : 'furniture',
-      ).first;
+      final bids = await _auctionService
+          .getBidsForAuction(
+            widget.itemData!['id'],
+            widget.isArt ? 'art' : 'furniture',
+          )
+          .first;
 
       if (bids.isNotEmpty) {
         final newBid = (bids.first['amount'] as num).toDouble();
@@ -102,10 +105,12 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
       }
 
       // 2. Fetch latest auction status
-      final auction = await _auctionService.getAuctionById(
-        widget.itemData!['id'],
-        widget.isArt ? 'art' : 'furniture',
-      ).first;
+      final auction = await _auctionService
+          .getAuctionById(
+            widget.itemData!['id'],
+            widget.isArt ? 'art' : 'furniture',
+          )
+          .first;
 
       if (auction != null) {
         final startTime = DateTime.tryParse(auction['start_time'] ?? '');
@@ -178,7 +183,8 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
         if (mounted) {
           setState(() => _isRegistered = true);
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Already registered for this auction!')),
+            const SnackBar(
+                content: Text('Already registered for this auction!')),
           );
         }
         return;
@@ -224,7 +230,8 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
               children: [
                 CircularProgressIndicator(color: Colors.yellow),
                 SizedBox(width: 20),
-                Text('Processing report...', style: TextStyle(color: Colors.white)),
+                Text('Processing report...',
+                    style: TextStyle(color: Colors.white)),
               ],
             ),
           );
@@ -274,10 +281,12 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
       await Future.delayed(const Duration(milliseconds: 500));
 
       // Fetch fresh auction data
-      final freshAuction = await _auctionService.getAuctionById(
-        widget.itemData!['id'],
-        widget.isArt ? 'art' : 'furniture',
-      ).first;
+      final freshAuction = await _auctionService
+          .getAuctionById(
+            widget.itemData!['id'],
+            widget.isArt ? 'art' : 'furniture',
+          )
+          .first;
 
       if (freshAuction == null) {
         // Auction was deleted
@@ -294,10 +303,12 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
       }
 
       // Fetch fresh bids
-      final freshBids = await _auctionService.getBidsForAuction(
-        widget.itemData!['id'],
-        widget.isArt ? 'art' : 'furniture',
-      ).first;
+      final freshBids = await _auctionService
+          .getBidsForAuction(
+            widget.itemData!['id'],
+            widget.isArt ? 'art' : 'furniture',
+          )
+          .first;
 
       if (mounted) {
         setState(() {
@@ -308,7 +319,9 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
             _currentBidId = freshBids.first['id'] as String?;
           } else {
             // No bids remaining, reset to starting price
-            _currentBid = double.tryParse(widget.itemData?['price']?.toString() ?? '0') ?? 0;
+            _currentBid =
+                double.tryParse(widget.itemData?['price']?.toString() ?? '0') ??
+                    0;
             _highestBidderId = null;
             _currentBidId = null;
           }
@@ -332,7 +345,9 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
     } catch (e) {
       debugPrint('Error refreshing auction data: $e');
     }
-  }  Future<void> _navigateToWinnerScreen() async {
+  }
+
+  Future<void> _navigateToWinnerScreen() async {
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -357,7 +372,7 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
           itemId: widget.itemData?['id'] ?? '',
           itemType: widget.isArt ? 'art' : 'furniture',
           itemTitle: widget.title,
-          imageUrl: widget.imageUrl,
+          imageUrl: widget.imageUrl, currentbid: _currentBid,
         ),
       ),
     );
@@ -370,10 +385,12 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
         backgroundColor: Colors.black,
         appBar: AppBar(
           backgroundColor: Colors.black,
-          title: const Text('Item Details', style: TextStyle(color: Colors.white)),
+          title:
+              const Text('Item Details', style: TextStyle(color: Colors.white)),
         ),
         body: const Center(
-          child: Text('No item data available', style: TextStyle(color: Colors.white)),
+          child: Text('No item data available',
+              style: TextStyle(color: Colors.white)),
         ),
       );
     }
@@ -383,15 +400,22 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
             ? 'Beautiful handcrafted art piece by a local artist.'
             : 'High-quality furniture piece, perfect for any home.');
 
-    final artist = widget.isArt ? (widget.itemData?['artist'] ?? 'Unknown Artist') : null;
-    final material = !widget.isArt ? (widget.itemData?['material'] ?? 'Wood') : null;
-    final condition = !widget.isArt ? (widget.itemData?['condition'] ?? 'New') : null;
+    final artist =
+        widget.isArt ? (widget.itemData?['artist'] ?? 'Unknown Artist') : null;
+    final material =
+        !widget.isArt ? (widget.itemData?['material'] ?? 'Wood') : null;
+    final condition =
+        !widget.isArt ? (widget.itemData?['condition'] ?? 'New') : null;
 
     final startTime = widget.itemData?['start_time'] != null
-        ? DateFormat.yMd().add_jm().format(DateTime.parse(widget.itemData!['start_time']))
+        ? DateFormat.yMd()
+            .add_jm()
+            .format(DateTime.parse(widget.itemData!['start_time']))
         : 'N/A';
     final endTime = widget.itemData?['end_time'] != null
-        ? DateFormat.yMd().add_jm().format(DateTime.parse(widget.itemData!['end_time']))
+        ? DateFormat.yMd()
+            .add_jm()
+            .format(DateTime.parse(widget.itemData!['end_time']))
         : 'N/A';
 
     return Scaffold(
@@ -423,7 +447,8 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
                   height: 250,
                   color: Colors.grey[800],
                   child: const Center(
-                    child: Icon(Icons.image_not_supported, size: 80, color: Colors.white),
+                    child: Icon(Icons.image_not_supported,
+                        size: 80, color: Colors.white),
                   ),
                 ),
               ),
@@ -443,14 +468,15 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
                     color: Colors.yellow.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: Colors.yellow),
                   ),
                   child: Text(
-                    'PKR ${_currentBid.toStringAsFixed(0)}',
+                    'PKR ${_formatSmart(_currentBid)}',
                     style: const TextStyle(
                       color: Colors.yellow,
                       fontSize: 18,
@@ -536,9 +562,12 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (widget.isArt) _buildDetailRow('Artist:', artist ?? 'Unknown'),
-                  _buildDetailRow('Material:', material ?? widget.itemData?['material'] ?? 'N/A'),
-                  _buildDetailRow('Condition:', condition ?? widget.itemData?['condition'] ?? 'N/A'),
+                  if (widget.isArt)
+                    _buildDetailRow('Artist:', artist ?? 'Unknown'),
+                  _buildDetailRow('Material:',
+                      material ?? widget.itemData?['material'] ?? 'N/A'),
+                  _buildDetailRow('Condition:',
+                      condition ?? widget.itemData?['condition'] ?? 'N/A'),
                 ],
               ),
             ),
@@ -584,7 +613,8 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
                       ),
                     );
                   },
-                  icon: const Icon(Icons.lightbulb_outline, color: Colors.black),
+                  icon:
+                      const Icon(Icons.lightbulb_outline, color: Colors.black),
                   label: const Text(
                     'AI Suggestions',
                     style: TextStyle(fontWeight: FontWeight.bold),
@@ -593,7 +623,8 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
                     backgroundColor: Colors.yellow,
                     foregroundColor: Colors.black,
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
                   ),
                 ),
               ),
@@ -782,5 +813,22 @@ class _ArtFurnitureDetailsScreenState extends State<ArtFurnitureDetailsScreen> {
     _auctionTimer?.cancel();
     _auctionService.dispose();
     super.dispose();
+  }
+
+  String _formatSmart(double number) {
+    // If number is >= 1 million, use shortened format (1m, 1b)
+    if (number >= 1000000) {
+      if (number >= 1000000000) {
+        return '${(number / 1000000000).toStringAsFixed(1)}b';
+      }
+      return '${(number / 1000000).toStringAsFixed(1)}m';
+    }
+    // Else, use comma-separated format (e.g., 10,000)
+    else {
+      return number.toStringAsFixed(0).replaceAllMapped(
+        RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+            (Match m) => '${m[1]},',
+      );
+    }
   }
 }

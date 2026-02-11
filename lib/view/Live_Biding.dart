@@ -11,6 +11,7 @@ class LiveBidscreen extends StatefulWidget {
   final String itemType;
   final String itemTitle;
   final String imageUrl;
+  final double currentbid;
 
   const LiveBidscreen({
     super.key,
@@ -18,6 +19,7 @@ class LiveBidscreen extends StatefulWidget {
     required this.itemType,
     required this.itemTitle,
     required this.imageUrl,
+    required this.currentbid,
   });
 
   @override
@@ -31,6 +33,7 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
   bool _isPlacingBid = false;
   bool _auctionEnded = false;
   double _currentBid = 0;
+  double _startingPrice = 0;
   List<Map<String, dynamic>> _bids = [];
   DateTime? _endTime;
   String? _highestBidderId;
@@ -43,6 +46,8 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
   @override
   void initState() {
     super.initState();
+    _startingPrice = widget.currentbid;
+    _currentBid = widget.currentbid;
     _auctionService = AuctionService(supabase: _supabase);
     _fetchInitialData();
     _setupRealtimeUpdates();
@@ -51,7 +56,6 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
 
   Future<void> _fetchInitialData() async {
     try {
-      // Fetch auction details
       final auctionResponse = await _supabase
           .from(widget.itemType)
           .select()
@@ -59,16 +63,16 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
           .single();
 
       setState(() {
-        _currentBid = (auctionResponse['price'] as num).toDouble();
+        _currentBid = (auctionResponse['price'] as num?)?.toDouble() ?? widget.currentbid;
         _endTime = DateTime.tryParse(auctionResponse['end_time'] ?? '');
         _auctionEnded = auctionResponse['is_active'] == false;
-        _updateTimeRemaining(); // Initialize the timer display
+        _updateTimeRemaining();
       });
 
-      // Fetch initial bids
       await _fetchBids();
     } catch (e) {
       _showErrorSnackbar('Error fetching auction data: ${e.toString()}');
+      print('Error fetching auction data: ${e.toString()}');
     }
   }
 
@@ -97,7 +101,7 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
       }
     } else {
       _timeRemaining =
-          "${remaining.inHours.remainder(24).toString().padLeft(2, '0')}:"
+      "${remaining.inHours.remainder(24).toString().padLeft(2, '0')}:"
           "${remaining.inMinutes.remainder(60).toString().padLeft(2, '0')}:"
           "${remaining.inSeconds.remainder(60).toString().padLeft(2, '0')}";
     }
@@ -114,7 +118,7 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
           .limit(10);
 
       final List<Map<String, dynamic>> bids =
-          List<Map<String, dynamic>>.from(bidsResponse);
+      List<Map<String, dynamic>>.from(bidsResponse);
       final currentUserId = _supabase.auth.currentUser?.id;
 
       final updatedBids = bids.map((bid) {
@@ -142,7 +146,7 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
       setState(() {
         _bids = updatedBids;
         if (_bids.isNotEmpty) {
-          _currentBid = (_bids.first['amount'] as num).toDouble();
+          _currentBid = (_bids.first['amount'] as num?)?.toDouble() ?? widget.currentbid;
           _highestBidderId = _bids.first['user_id'];
         }
       });
@@ -152,7 +156,6 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
   }
 
   void _setupRealtimeUpdates() {
-    // Listen for new bids
     _bidsSubscription = _auctionService
         .getBidsForAuction(widget.itemId, widget.itemType)
         .listen((bids) {
@@ -183,13 +186,12 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
       setState(() {
         _bids = updatedBids;
         if (_bids.isNotEmpty) {
-          _currentBid = (_bids.first['amount'] as num).toDouble();
+          _currentBid = (_bids.first['amount'] as num?)?.toDouble() ?? widget.currentbid;
           _highestBidderId = _bids.first['user_id'];
         }
       });
     });
 
-    // Listen for auction status changes
     _auctionSubscription = _auctionService
         .getAuctionById(widget.itemId, widget.itemType)
         .listen((auction) {
@@ -197,7 +199,7 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
         setState(() {
           _auctionEnded = !auction['is_active'];
           _endTime = DateTime.tryParse(auction['end_time'] ?? '');
-          _currentBid = (auction['price'] as num).toDouble();
+          _currentBid = (auction['price'] as num?)?.toDouble() ?? widget.currentbid;
         });
 
         if (_auctionEnded) {
@@ -264,7 +266,7 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
                 ),
               ),
               Text(
-                "Winning Bid: ${_currentBid.toStringAsFixed(0)} PKR",
+                "Winning Bid: ${_formatSmart(_currentBid)} PKR",
                 style: const TextStyle(
                   color: Colors.yellow,
                   fontSize: 16,
@@ -304,10 +306,25 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
     );
   }
 
+  String _formatSmart(double number) {
+    if (number >= 1000000) {
+      if (number >= 1000000000) {
+        return '${(number / 1000000000).toStringAsFixed(1)}b';
+      }
+      return '${(number / 1000000).toStringAsFixed(1)}m';
+    } else {
+      return number.toStringAsFixed(0).replaceAllMapped(
+        RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
+            (Match m) => '${m[1]},',
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isCurrentUserHighestBidder =
         _highestBidderId == _supabase.auth.currentUser?.id;
+    final hasBids = _bids.isNotEmpty;
 
     return SafeArea(
       child: Scaffold(
@@ -317,7 +334,6 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Item Image
                 Image.network(
                   widget.imageUrl,
                   fit: BoxFit.cover,
@@ -332,10 +348,7 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 16),
-
-                // Auction Info
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -356,19 +369,34 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    if (_highestBidderId != null)
+                    Row(
+                      children: [
+                        const Icon(Icons.price_change,
+                            color: Colors.white70, size: 20),
+                        const SizedBox(width: 8),
+                        Text(
+                          "Starting Price: ${_formatSmart(_startingPrice)} PKR",
+                          style: const TextStyle(
+                              color: Colors.white70, fontSize: 16),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (hasBids)
                       Row(
                         children: [
                           const Icon(Icons.emoji_events,
                               color: Colors.yellow, size: 20),
                           const SizedBox(width: 8),
                           Text(
-                            "${isCurrentUserHighestBidder ? "You" : _highestBidderName} are winning with ",
+                            isCurrentUserHighestBidder
+                                ? "You are winning with "
+                                : "$_highestBidderName is winning with ",
                             style: const TextStyle(
                                 color: Colors.white, fontSize: 18),
                           ),
                           Text(
-                            "${_currentBid.toStringAsFixed(0)} PKR",
+                            "${_formatSmart(_currentBid)} PKR",
                             style: TextStyle(
                               color: isCurrentUserHighestBidder
                                   ? Colors.yellow
@@ -379,12 +407,22 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
                           ),
                         ],
                       ),
+                    if (!hasBids)
+                      Row(
+                        children: [
+                          const Icon(Icons.info,
+                              color: Colors.white70, size: 20),
+                          const SizedBox(width: 8),
+                          const Text(
+                            "No bids placed yet",
+                            style:
+                            TextStyle(color: Colors.white70, fontSize: 16),
+                          ),
+                        ],
+                      ),
                   ],
                 ),
-
                 const SizedBox(height: 20),
-
-                // Bids List
                 const Text(
                   "Bid History",
                   style: TextStyle(
@@ -395,103 +433,97 @@ class _LiveBidscreenState extends State<LiveBidscreen> {
                 const SizedBox(height: 8),
                 _bids.isEmpty
                     ? const Center(
-                        child: Text(
-                          "No bids placed yet",
-                          style: TextStyle(color: Colors.white70, fontSize: 16),
-                        ),
-                      )
+                  child: Text(
+                    "No bids placed yet",
+                    style: TextStyle(color: Colors.white70, fontSize: 16),
+                  ),
+                )
                     : Column(
-                        children: _bids.map((bid) {
-                          final username = bid['user_name'] ?? 'Anonymous';
-                          final isHighest = bid['is_highest'] == true;
-                          final isCurrentUser = bid['is_current_user'] == true;
+                  children: _bids.map((bid) {
+                    final username = bid['user_name'] ?? 'Anonymous';
+                    final isHighest = bid['is_highest'] == true;
+                    final isCurrentUser = bid['is_current_user'] == true;
+                    final bidAmount = (bid['amount'] as num).toDouble();
 
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 10.0),
-                            child: CustomListTile(
-                              leading: CircleAvatar(
-                                backgroundColor: Colors.grey[800],
-                                backgroundImage: bid['avatar_url'] != null
-                                    ? NetworkImage(bid['avatar_url'])
-                                    : null,
-                                child: bid['avatar_url'] == null
-                                    ? Text(
-                                        username.isNotEmpty
-                                            ? username[0].toUpperCase()
-                                            : '?',
-                                        style: const TextStyle(
-                                            color: Colors.white),
-                                      )
-                                    : null,
-                              ),
-                              titleText: username,
-                              subtitleText: isHighest ? "Winning Bid" : null,
-                              trailingText:
-                                  "${(bid['amount'] as num).toStringAsFixed(0)} PKR",
-                              backgroundColor: isCurrentUser
-                                  ? Colors.grey[800]?.withOpacity(0.5)
-                                  : null,
-                              borderColor: isHighest
-                                  ? Colors.yellow
-                                  : Colors.transparent,
-                            ),
-                          );
-                        }).toList(),
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10.0),
+                      child: CustomListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: Colors.grey[800],
+                          backgroundImage: bid['avatar_url'] != null
+                              ? NetworkImage(bid['avatar_url'])
+                              : null,
+                          child: bid['avatar_url'] == null
+                              ? Text(
+                            username.isNotEmpty
+                                ? username[0].toUpperCase()
+                                : '?',
+                            style: const TextStyle(color: Colors.white),
+                          )
+                              : null,
+                        ),
+                        titleText: username,
+                        subtitleText: isHighest ? "Winning Bid" : null,
+                        trailingText: "${_formatSmart(bidAmount)} PKR",
+                        backgroundColor: isCurrentUser
+                            ? Colors.grey[800]?.withOpacity(0.5)
+                            : null,
+                        borderColor: isHighest
+                            ? Colors.yellow
+                            : Colors.transparent,
                       ),
-
+                    );
+                  }).toList(),
+                ),
                 const SizedBox(height: 20),
-
-                // Bid Input
                 if (!_auctionEnded) ...[
                   const Text(
                     "Place Your Bid",
                     style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold),
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Row(
                     children: [
                       Expanded(
+                        flex: 2,
                         child: CustomTextField(
                           text: "Enter your bid",
                           controller: _bidController,
                           keyboardType: TextInputType.number,
                         ),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.add, color: Colors.yellow),
-                        onPressed: () {
-                          var current =
-                              double.tryParse(_bidController.text) ?? 0;
-                          _bidController.text = (current + 1000)
-                              .toStringAsFixed(0); // Adds 1000 each time
-                        },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.yellow,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      onPressed: _isPlacingBid ? null : _placeBid,
-                      child: _isPlacingBid
-                          ? const CircularProgressIndicator(color: Colors.black)
-                          : const Text(
-                              "Place Bid",
+                      const SizedBox(width: 8),
+                      Expanded(
+                        flex: 1,
+                        child: SizedBox(
+                          height: 56,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.yellow,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                            ),
+                            onPressed: _isPlacingBid ? null : _placeBid,
+                            child: _isPlacingBid
+                                ? const CircularProgressIndicator(
+                                color: Colors.black)
+                                : const Text(
+                              "Bid",
                               style: TextStyle(
                                 color: Colors.black,
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-                    ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
+                  const SizedBox(height: 20),
                 ],
               ],
             ),

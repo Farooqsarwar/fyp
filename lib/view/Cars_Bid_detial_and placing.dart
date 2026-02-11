@@ -34,6 +34,7 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
   bool isRegistered = false;
   int _registeredUsersCount = 0;
   String? _highestBidderId;
+  String? _currentBidId; // Track current bid ID for reporting
   String _timeRemaining = "00:00:00";
   StreamSubscription<int>? _registrationCountSub;
   StreamSubscription<List<Map<String, dynamic>>>? _bidsSubscription;
@@ -60,6 +61,7 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
           setState(() {
             _currentBid = newBid;
             _highestBidderId = bids.first['user_id'] as String?;
+            _currentBidId = bids.first['id'] as String?; // Track current bid ID
           });
         }
       }
@@ -166,6 +168,137 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
     }
   }
 
+  Future<void> _reportCurrentBid() async {
+    if (_currentBidId == null) return;
+
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You must be logged in to report bids')),
+      );
+      return;
+    }
+
+    try {
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return const AlertDialog(
+            backgroundColor: Colors.black,
+            content: Row(
+              children: [
+                CircularProgressIndicator(color: Colors.yellow),
+                SizedBox(width: 20),
+                Text('Processing report...',
+                    style: TextStyle(color: Colors.white)),
+              ],
+            ),
+          );
+        },
+      );
+
+      await auctionService.reportBid(
+        _currentBidId!,
+        widget.itemData!['id'],
+        'cars',
+      );
+
+      // Force refresh the data after reporting
+      await _forceRefreshAuctionData();
+
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Bid reported successfully'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading dialog
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error reporting bid: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      debugPrint('Error reporting bid: ${e.toString()}');
+    }
+  }
+
+  Future<void> _forceRefreshAuctionData() async {
+    try {
+      // Cancel existing streams
+      _registrationCountSub?.cancel();
+      _bidsSubscription?.cancel();
+      _auctionSubscription?.cancel();
+
+      // Wait a moment for the database to update
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // Fetch fresh auction data
+      final freshAuction = await auctionService
+          .getAuctionById(widget.itemData!['id'], 'cars')
+          .first;
+
+      if (freshAuction == null) {
+        // Auction was deleted
+        if (mounted) {
+          Navigator.pop(context); // Navigate back
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Auction has been removed due to reported bid'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+      // Fetch fresh bids
+      final freshBids = await auctionService
+          .getBidsForAuction(widget.itemData!['id'], 'cars')
+          .first;
+
+      if (mounted) {
+        setState(() {
+          // Update current bid
+          if (freshBids.isNotEmpty) {
+            _currentBid = (freshBids.first['amount'] as num).toDouble();
+            _highestBidderId = freshBids.first['user_id'] as String?;
+            _currentBidId = freshBids.first['id'] as String?;
+          } else {
+            // No bids remaining, reset to starting price
+            _currentBid =
+                double.tryParse(widget.itemData?['price']?.toString() ?? '0') ?? 0;
+            _highestBidderId = null;
+            _currentBidId = null;
+          }
+
+          // Update auction status
+          final startTime = DateTime.tryParse(freshAuction['start_time'] ?? '');
+          final endTime = DateTime.tryParse(freshAuction['end_time'] ?? '');
+          final now = DateTime.now();
+
+          _auctionNotStarted = startTime != null && now.isBefore(startTime);
+          _auctionEnded = endTime != null && now.isAfter(endTime) ||
+              !(freshAuction['is_active'] ?? false);
+        });
+      }
+
+      // Restart real-time updates
+      _setupRealTimeUpdates();
+
+      debugPrint('Auction data refreshed successfully');
+    } catch (e) {
+      debugPrint('Error refreshing auction data: $e');
+    }
+  }
+
   void _navigateToLiveBidding() {
     Navigator.push(
       context,
@@ -174,7 +307,7 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
           itemId: widget.itemData?['id'] ?? '',
           itemType: 'cars',
           itemTitle: widget.title,
-          imageUrl: widget.imageUrl,
+          imageUrl: widget.imageUrl, currentbid: _currentBid
         ),
       ),
     );
@@ -385,8 +518,14 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
   Widget build(BuildContext context) {
     if (widget.itemData == null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Car Details')),
-        body: const Center(child: Text('No item data available')),
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          title: const Text('Car Details', style: TextStyle(color: Colors.white)),
+        ),
+        body: const Center(
+          child: Text('No item data available', style: TextStyle(color: Colors.white)),
+        ),
       );
     }
 
@@ -455,9 +594,10 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                      color: Colors.yellow.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.yellow)),
+                    color: Colors.yellow.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.yellow),
+                  ),
                   child: Text(
                     'PKR ${_currentBid.toStringAsFixed(0)}',
                     style: const TextStyle(
@@ -469,6 +609,22 @@ class _CarBidDetailsScreenState extends State<CarBidDetailsScreen> {
                 ),
               ],
             ),
+            if (!_auctionEnded && _currentBid > 0)
+              TextButton(
+                onPressed: _reportCurrentBid,
+                style: TextButton.styleFrom(
+                  backgroundColor: Colors.yellow.withOpacity(0.2),
+                  foregroundColor: Colors.red,
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.report, size: 16),
+                    SizedBox(width: 4),
+                    Text('Report this bid'),
+                  ],
+                ),
+              ),
             const SizedBox(height: 16),
             Container(
               padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),

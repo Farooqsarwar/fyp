@@ -84,10 +84,7 @@ flutter:
   assets:
     - assets/logo.jpg
     - assets/forget.png
-    - assets/cars.json
-    - assets/furniture.json
     - assets/art.png
-    - assets/art.json
     - assets/person1.png
     - assets/person2.png
     - assets/person3.png
